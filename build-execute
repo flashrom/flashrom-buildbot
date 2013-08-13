@@ -1,0 +1,12 @@
+#!/bin/bash
+instance="$1"
+compiler="$2"
+shift 2
+case "$compiler" in
+	i386-openbsd-gcc)
+		ssh compiler@192.168.56.128 "cd buildbot/$instance; $@"
+		;;
+	*)
+		"$@"
+		;;
+esac

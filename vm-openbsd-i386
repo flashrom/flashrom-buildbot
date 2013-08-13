@@ -1,0 +1,36 @@
+#!/bin/bash
+case "$1" in
+	start)
+		VBoxManage list runningvms|grep -q OpenBSD-i386 && {
+			echo "OpenBSD-i386 VM is already running. Nothing done."
+			exit 1
+		}
+		VBoxHeadless --startvm OpenBSD-i386 --vrde off &
+		until ssh compiler@192.168.56.128 true >/dev/null 2>&1; do
+			echo "Waiting for OpenBSD-i386 VM to start..."
+			sleep 5
+		done
+		echo "OpenBSD-i386 VM started and waiting for commands."
+		;;
+	stop)
+		VBoxManage list runningvms|grep -q OpenBSD-i386 || {
+			echo "OpenBSD-i386 VM is already stopped. Nothing done."
+			exit 1
+		}
+		ssh root@192.168.56.128 halt -p >/dev/null 2>&1
+		while ping -c 1 192.168.56.128 >/dev/null 2>&1; do
+			echo "Waiting for OpenBSD-i386 VM to stop..."
+			sleep 5
+		done
+		while VBoxManage list runningvms|grep -q OpenBSD-i386; do
+			echo "Waiting for OpenBSD VM to stop..."
+			sleep 5
+		done
+		chmod 660 "/home/flashrom-buildbot/VirtualBox VMs/OpenBSD-i386/OpenBSD-i386.vbox"
+		echo "OpenBSD-i386 VM stopped."
+		;;
+	*)
+		echo "Usage: $0 {start|stop}"
+		exit 1
+		;;
+esac

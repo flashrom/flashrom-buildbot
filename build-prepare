@@ -1,0 +1,11 @@
+#!/bin/bash
+echo "Running in $(pwd)"
+case "$2" in
+	i386-openbsd-gcc)
+		vm-openbsd-i386 start || exit 1
+		echo "Running in $(pwd)"
+		tar czf - . | ssh compiler@192.168.56.128 "mkdir -p buildbot/$1; cd buildbot/$1; tar xzf -"
+		;;
+	*)
+		;;
+esac

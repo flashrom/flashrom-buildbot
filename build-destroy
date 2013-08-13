@@ -1,0 +1,11 @@
+#!/bin/bash
+instance="$1"
+compiler="$2"
+shift 2
+case "$compiler" in
+	i386-openbsd-gcc)
+		vm-openbsd-i386 stop || exit 1
+		;;
+	*)
+		;;
+esac

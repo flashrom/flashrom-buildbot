@@ -1,0 +1,6 @@
+flashrom-buildbot
+=================
+
+This is the buildbot we use internally to check cross-platform compatibility of flashrom.
+It consists of a bunch of bash v4 scripts that handle a mix of cross-compilers and VirtualBox-based virtual machines.
+You will most like not have any use for it but feel free to reuse any bits (according to COPYING).

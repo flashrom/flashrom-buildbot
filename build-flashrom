@@ -1,0 +1,134 @@
+#!/bin/bash
+# This script expects a source directory. TODO: Handle tarballs later.
+
+available_compilers=(i586-pc-msdosdjgpp-gcc i686-w64-mingw32-gcc x86_64-w64-mingw32-gcc x86_64-pc-freebsd9-gcc gcc "gcc -m32" arm-linux-gnueabi-gcc mips-linux-gcc ppc-linux-gnueabi-gcc clang i386-openbsd-gcc)
+
+
+# checks if an element is in an array. invocation example: is_in "gcc" "${available_compilers[@]}"
+is_in () {
+	arr=$1
+	shift
+	for elem in "$@"; do
+		[[ "$elem" == "$arr" ]] && return 0;
+	done
+	return 1
+}
+
+show_help() {
+	echo "Usage:
+${0} [-b buildbot] [-s sourcepath] [-c compiler]... [flashrom build options]
+
+Options
+    -h or --help
+        Display this message.
+    -b or --buildbot
+        path to buildbot home directory
+    -s or --source
+        path to flashrom sources to build
+    -c or --compiler
+        adds a compiler to the list of compilers to use (replaces the default list, can be given multiple times)
+
+    Possible compilers are: ${available_compilers[@]}"
+	exit 1
+}
+
+msg_err () {
+	echo "$@ Aborting." >&2
+	exit 1
+}
+
+check_arg () {
+	if [ $# -ne 2 -o -z "$2" ] || [[ "$2" == -* ]]; then
+		msg_err "Missing argument for $1."
+	fi
+}
+
+#default values
+buildbot="${BUILDBOT_HOME}"
+flashrom_source=.
+compilers=()
+flashrom_opts=()
+
+while [ $# -gt 0 ];
+do
+	case ${1} in
+	-h|--help)
+		show_help;
+		shift;;
+	-b|--buildbot)
+		check_arg $1 "$2"
+		if [ ! -d $2 ]; then
+			msg_err "$2 is not a valid directory."
+		fi
+		buildbot="$2"
+		shift 2;;
+	-s|--source)
+		check_arg $1 "$2"
+		if [ ! -d "$2" ]; then
+			msg_err "$2 is not a directory."
+		fi
+		flashrom_source="$2"
+		shift 2;;
+	-c|--compiler)
+		check_arg $1 "$2"
+		if ! is_in "$2" "${available_compilers[@]}" ; then
+			msg_err "$2 is not in the list of available compilers."
+		fi
+		compilers+=("$2")
+		shift 2;;
+	-*)
+		show_help;
+		msg_err "invalid option: $1"
+		;;
+	*)	# everything else are flashrom build parameters
+		flashrom_opts+=("$1")
+		shift;;
+	esac;
+done
+
+if [ -z "${buildbot}" ]; then
+	msg_err "No buildbot directory given."
+fi
+
+if [ ! -d "${flashrom_source}" -o ! -e "${flashrom_source}/flashrom.c" ]; then
+	msg_err "${flashrom_source} is not a valid flashrom source directory."
+fi
+
+if [ "${#compilers[@]}" -eq 0 ]; then
+	# These are the default compilers.
+	# Native and cross-builds possible on the same host, and a native build with
+	# clang to check compatibility with non-gcc
+	compilers=("${available_compilers[@]}")
+fi
+
+echo "buildbot=${buildbot}"
+echo "flashrom_source=${flashrom_source}"
+echo "compilers=${compilers[@]}"
+echo "flashrom_opts=${flashrom_opts[@]}"
+echo
+
+PATH="${buildbot}/buildbot/:${PATH}"
+unset LANG
+
+lastid=$(cat ${buildbot}/public_html/buildresults/latest-build.txt)
+newid=$(printf "%06d" $(expr $lastid + 1))
+echo "Starting Build #${newid}"
+echo -n $newid >${buildbot}/public_html/buildresults/latest-build.txt
+resultdir=$(mktemp -d ${buildbot}/public_html/buildresults/flashrom-${newid}-XXX)
+echo ${flashrom_opts} >$resultdir/buildparams.txt
+cd "${flashrom_source}"
+
+for cc in "${compilers[@]}"; do
+	echo "Starting $cc build in $(pwd)"
+	mkdir "$resultdir/$cc"
+	# We are not interested in cleanup logs for the previous run.
+	gmake distclean >/dev/null 2>&1
+	build-prepare "$newid" "$cc"
+	build-execute "$newid" "$cc" gmake distclean 2>&1 | tee "$resultdir/$cc/buildlog.txt"
+	build-execute "$newid" "$cc" gmake CC="$cc" ${flashrom_opts} 2>&1 | tee -a "$resultdir/$cc/buildlog.txt"
+	build-fetch "$newid" "$cc" "$resultdir/$cc/" flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe 2>/dev/null
+	build-execute "$newid" "$cc" gmake distclean 2>&1 | tee -a "$resultdir/$cc/buildlog.txt"
+	build-destroy "$newid" "$cc"
+done
+echo "Done! :)"
+chmod go+rx $resultdir

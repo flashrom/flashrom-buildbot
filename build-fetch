@@ -1,0 +1,16 @@
+#!/bin/bash
+instance="$1"
+compiler="$2"
+dest="$3"
+shift 3
+case "$compiler" in
+	i386-openbsd-gcc)
+		# This will explode for files with spaces in the name.
+		for file in $*; do
+			scp -p compiler@192.168.56.128:buildbot/$instance/$file $dest/
+		done
+		;;
+	*)
+		cp -a -t "$dest" $*
+		;;
+esac

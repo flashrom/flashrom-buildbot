@@ -1,0 +1,7 @@
+#!/bin/bash
+# Pick those which are already easily available in opensuse
+# zypper in pciutils-devel
+# zypper in pciutils-devel-32bit
+make distclean; make HOST=arm-linux CROSS_COMPILE=/opt/cross/bin/arm-linux-gnueabi- PREFIX=/opt/cross/arm-linux-gnueabi/usr ZLIB=no DNS=no install-pcilib install-lib
+make distclean; make HOST=mips-linux CROSS_COMPILE=/opt/cross/bin/mips-linux- PREFIX=/opt/cross/mips-linux/usr ZLIB=no DNS=no install-pcilib install-lib
+make distclean; make HOST=ppc-linux CROSS_COMPILE=/opt/cross/bin/ppc-linux-gnueabi- PREFIX=/opt/cross/ppc-linux-gnueabi/usr ZLIB=no DNS=no install-pcilib install-lib
