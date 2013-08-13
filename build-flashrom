@@ -16,7 +16,7 @@ is_in () {
 
 show_help() {
 	echo "Usage:
-${0} [-b buildbot] [-s sourcepath] [-c compiler]... [flashrom build options]
+${0} [-p] [-b buildbot] [-s sourcepath] [-c compiler]... [flashrom build options]
 
 Options
     -h or --help
@@ -27,6 +27,8 @@ Options
         path to flashrom sources to build
     -c or --compiler
         adds a compiler to the list of compilers to use (replaces the default list, can be given multiple times)
+    -p or --private
+        do not make results public
 
     Possible compilers are: ${available_compilers[@]}"
 	exit 1
@@ -48,6 +50,7 @@ buildbot="${BUILDBOT_HOME}"
 flashrom_source=.
 compilers=()
 flashrom_opts=()
+priv=0
 
 while [ $# -gt 0 ];
 do
@@ -76,6 +79,9 @@ do
 		fi
 		compilers+=("$2")
 		shift 2;;
+	-p|--private)
+		priv=1
+		shift;;
 	-*)
 		show_help;
 		msg_err "invalid option: $1"
@@ -110,11 +116,12 @@ echo
 PATH="${buildbot}/buildbot/:${PATH}"
 unset LANG
 
-lastid=$(cat ${buildbot}/public_html/buildresults/latest-build.txt)
+lastid=$(sed 's/.*-\(.*\)-.*/\1/' ${buildbot}/public_html/buildresults/latest-build.txt)
 newid=$(printf "%06d" $(expr $lastid + 1))
 echo "Starting Build #${newid}"
-echo -n $newid >${buildbot}/public_html/buildresults/latest-build.txt
 resultdir=$(mktemp -d ${buildbot}/public_html/buildresults/flashrom-${newid}-XXX)
+echo -n $(basename ${resultdir}) >${buildbot}/public_html/buildresults/latest-build.txt
+test $priv -eq 1 || echo -n $(basename ${resultdir}) >${buildbot}/public_html/buildresults/latest-public-build.txt
 echo ${flashrom_opts} >$resultdir/buildparams.txt
 cd "${flashrom_source}"
 
@@ -131,4 +138,4 @@ for cc in "${compilers[@]}"; do
 	build-destroy "$newid" "$cc"
 done
 echo "Done! :)"
-chmod go+rx $resultdir
+test $priv -eq 1 || chmod go+rx $resultdir
