@@ -122,7 +122,7 @@ echo "Starting Build #${newid}"
 resultdir=$(mktemp -d ${buildbot}/public_html/buildresults/flashrom-${newid}-XXX)
 echo -n $(basename ${resultdir}) >${buildbot}/public_html/buildresults/latest-build.txt
 test $priv -eq 1 || echo -n $(basename ${resultdir}) >${buildbot}/public_html/buildresults/latest-public-build.txt
-echo ${flashrom_opts} >$resultdir/buildparams.txt
+echo ${flashrom_opts[@]} >$resultdir/buildparams.txt
 cd "${flashrom_source}"
 
 errors=0
@@ -135,7 +135,7 @@ for cc in "${compilers[@]}"; do
 	cur_err=0
 	build-prepare "$newid" "$cc"
 	build-execute "$newid" "$cc" gmake distclean 2>&1 | tee "$resultdir/$cc/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
-	build-execute "$newid" "$cc" gmake CC="$cc" ${flashrom_opts} 2>&1 | tee -a "$resultdir/$cc/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
+	build-execute "$newid" "$cc" gmake CC="$cc" ${flashrom_opts[@]} 2>&1 | tee -a "$resultdir/$cc/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
 	build-fetch "$newid" "$cc" "$resultdir/$cc/" flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe 2>/dev/null
 	build-execute "$newid" "$cc" gmake distclean 2>&1 | tee -a "$resultdir/$cc/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
 	build-destroy "$newid" "$cc"
