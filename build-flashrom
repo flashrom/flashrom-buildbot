@@ -1,5 +1,5 @@
 #!/bin/bash
-# This script expects a source directory. TODO: Handle tarballs later.
+# TODO: Handle tarballs later.
 
 available_compilers=(i586-pc-msdosdjgpp-gcc i686-w64-mingw32-gcc x86_64-w64-mingw32-gcc x86_64-pc-freebsd9-gcc gcc "gcc -m32" arm-linux-gnueabi-gcc mips-linux-gcc ppc-linux-gnueabi-gcc clang i386-openbsd-gcc)
 
@@ -16,11 +16,13 @@ is_in () {
 
 show_help() {
 	echo "Usage:
-${0} [-p] [-b buildbot] [-s sourcepath] [-c compiler]... [flashrom build options]
+${0} [-p] [-n] [-b buildbot] [-s sourcepath] [-c compiler]... [flashrom build options]
 
 Options
     -h or --help
         Display this message.
+    -n or --dry-run
+        Do not create any directories or files.
     -b or --buildbot
         path to buildbot home directory
     -s or --source
@@ -51,12 +53,16 @@ flashrom_source=.
 compilers=()
 flashrom_opts=()
 priv=0
+dryrun=0
 
 while [ $# -gt 0 ];
 do
 	case ${1} in
 	-h|--help)
 		show_help;
+		shift;;
+	-n|--dry-run)
+		dryrun=1;
 		shift;;
 	-b|--buildbot)
 		check_arg $1 "$2"
@@ -118,27 +124,33 @@ unset LANG
 
 lastid=$(sed 's/.*-\(.*\)-.*/\1/' ${buildbot}/public_html/buildresults/latest-build.txt)
 newid=$(printf "%06d" $(expr $lastid + 1))
-echo "Starting Build #${newid}"
-resultdir=$(mktemp -d ${buildbot}/public_html/buildresults/flashrom-${newid}-XXX)
-echo -n $(basename ${resultdir}) >${buildbot}/public_html/buildresults/latest-build.txt
-test $priv -eq 1 || echo -n $(basename ${resultdir}) >${buildbot}/public_html/buildresults/latest-public-build.txt
-echo ${flashrom_opts[@]} >$resultdir/buildparams.txt
+if [ "$dryrun" -eq 1 ]; then
+	echo "Simulating Build #${newid}"
+else
+	echo "Starting Build #${newid}"
+	resultdir=$(mktemp -d ${buildbot}/public_html/buildresults/flashrom-${newid}-XXX)
+	echo -n $(basename ${resultdir}) >${buildbot}/public_html/buildresults/latest-build.txt
+	test $priv -eq 1 || echo -n $(basename ${resultdir}) >${buildbot}/public_html/buildresults/latest-public-build.txt
+	echo ${flashrom_opts[@]} >$resultdir/buildparams.txt
+fi
 cd "${flashrom_source}"
 
 errors=0
 error_builds=()
 for cc in "${compilers[@]}"; do
 	echo "Starting $cc build in $(pwd)"
-	mkdir "$resultdir/$cc"
-	# We are not interested in cleanup logs for the previous run.
-	gmake distclean >/dev/null 2>&1
 	cur_err=0
-	build-prepare "$newid" "$cc"
-	build-execute "$newid" "$cc" gmake distclean 2>&1 | tee "$resultdir/$cc/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
-	build-execute "$newid" "$cc" gmake CC="$cc" ${flashrom_opts[@]} 2>&1 | tee -a "$resultdir/$cc/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
-	build-fetch "$newid" "$cc" "$resultdir/$cc/" flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe 2>/dev/null
-	build-execute "$newid" "$cc" gmake distclean 2>&1 | tee -a "$resultdir/$cc/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
-	build-destroy "$newid" "$cc"
+	if [ "$dryrun" -ne 1 ]; then
+		mkdir "$resultdir/$cc" || cur_err=1
+		# We are not interested in cleanup logs for the previous run.
+		gmake distclean >/dev/null 2>&1
+		build-prepare "$newid" "$cc"
+		build-execute "$newid" "$cc" gmake distclean 2>&1 | tee "$resultdir/$cc/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
+		build-execute "$newid" "$cc" gmake CC="$cc" ${flashrom_opts[@]} 2>&1 | tee -a "$resultdir/$cc/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
+		build-fetch "$newid" "$cc" "$resultdir/$cc/" flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe 2>/dev/null
+		build-execute "$newid" "$cc" gmake distclean 2>&1 | tee -a "$resultdir/$cc/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
+		build-destroy "$newid" "$cc"
+	fi
 	if [ ${cur_err} -ne 0 ]; then
 		errors=$(($errors + 1))
 		echo "The build with $cc above failed."
@@ -152,6 +164,6 @@ if [ $errors -ne 0 ]; then
 		echo "$b"
 	done
 fi
-echo "Results in ${resultdir}"
-test $priv -eq 1 || chmod go+rx $resultdir
+test "$dryrun" -eq 1 ||  echo "Results in ${resultdir}"
+test "$priv" -eq 1 -o "$dryrun" -eq 1 || chmod go+rx $resultdir
 exit $errors
