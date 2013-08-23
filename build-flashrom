@@ -163,12 +163,16 @@ lastid=$(sed 's/.*-\(.*\)-.*/\1/' ${buildbot}/public_html/buildresults/latest-bu
 newid=$(printf "%06d" $(expr $lastid + 1))
 if [ "$dryrun" -eq 1 ]; then
 	echo "Simulating Build #${newid}"
+	results_file=/dev/null
 else
 	echo "Starting Build #${newid}"
 	resultdir=$(mktemp -d ${buildbot}/public_html/buildresults/flashrom-${newid}-XXX)
+	results_file="${resultdir}/results.txt"
 	echo -n $(basename ${resultdir}) >${buildbot}/public_html/buildresults/latest-build.txt
 	test $priv -eq 1 || echo -n $(basename ${resultdir}) >${buildbot}/public_html/buildresults/latest-public-build.txt
-	echo ${flashrom_opts[@]} >$resultdir/buildparams.txt
+	echo "Build was requested in \"${flashrom_source}\"" >>"${results_file}"
+	echo "for ${!compilers[@]}" >>"${results_file}"
+	echo "with arguments \"${flashrom_opts[@]}\"." >>"${results_file}"
 fi
 cd "${flashrom_source}"
 
@@ -198,10 +202,12 @@ for ck in "${!compilers[@]}"; do
 done
 
 echo "Done (${errors} errors)!"
+echo >>"${results_file}"
+echo "${errors} errors" >>"${results_file}"
 if [ $errors -ne 0 ]; then
-	echo "The following builds failed:"
+	echo "The following builds failed:" | tee -a "${results_file}"
 	for ck in "${error_builds[@]}"; do
-		echo "$ck (${compilers[$ck]})"
+		echo "$ck (${compilers[$ck]})" | tee -a "${results_file}"
 	done
 fi
 test "$dryrun" -eq 1 ||  echo "Results in ${resultdir}"
