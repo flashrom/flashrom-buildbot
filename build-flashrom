@@ -1,15 +1,46 @@
 #!/bin/bash
 # TODO: Handle tarballs later.
 
-available_compilers=(i586-pc-msdosdjgpp-gcc i686-w64-mingw32-gcc x86_64-w64-mingw32-gcc x86_64-pc-freebsd9-gcc gcc "gcc -m32" arm-linux-gnueabi-gcc mips-linux-gcc ppc-linux-gnueabi-gcc clang i386-openbsd-gcc)
+declare -A available_compilers=([dos]=i586-pc-msdosdjgpp-gcc
+				[win32]=x86_64-w64-mingw32-gcc
+				[win64]=i686-w64-mingw32-gcc
+				[freebsd]=x86_64-pc-freebsd9-gcc
+				[gcc]=gcc
+				[gcc32]="gcc -m32"
+				[arm]=arm-linux-gnueabi-gcc
+				[mips]=mips-linux-gcc
+				[ppc]=ppc-linux-gnueabi-gcc
+				[clang]=clang
+				[openbsd]=i386-openbsd-gcc
+				[libpayload]="CC=gcc /home/flashrom-buildbot/coreboot/payloads/libpayload/bin/lpgcc")
 
-
-# checks if an element is in an array. invocation example: is_in "gcc" "${available_compilers[@]}"
+# checks if parameter is an element in an array. invocation example: is_in "gcc" "${available_compilers[@]}"
 is_in () {
 	arr=$1
 	shift
 	for elem in "$@"; do
 		[[ "$elem" == "$arr" ]] && return 0;
+	done
+	return 1
+}
+
+# checks if parameter is a key in an associative array. invocation example: is_key_in "dos" "$(declare -p available_compilers)"
+is_key_in () {
+	key="$1"
+	eval "local -A arr="${2#*=} # deserialize and eliminate old name/assignment
+	test -n "${arr[$key]}"
+}
+
+# checks if parameter is element in an associative array and returns the key in the 3rd variable.
+# invocation example: is_in "i586-pc-msdosdjgpp-gcc" "$(declare -p available_compilers)" "ret_val"
+get_key_from_name () {
+	name="$1"
+	eval "local -A arr="${2#*=} # deserialize and eliminate old name/assignment
+	for key in "${!arr[@]}"; do
+		if [ "${arr["$key"]}" = "$name" ]; then
+			eval "$3="$key""
+			return 0
+		fi
 	done
 	return 1
 }
@@ -32,7 +63,7 @@ Options
     -p or --private
         do not make results public
 
-    Possible compilers are: ${available_compilers[@]}"
+    Possible compilers are: ${!available_compilers[@]}"
 	exit 1
 }
 
@@ -50,7 +81,7 @@ check_arg () {
 #default values
 buildbot="${BUILDBOT_HOME}"
 flashrom_source=.
-compilers=()
+declare -A compilers=()
 flashrom_opts=()
 priv=0
 dryrun=0
@@ -80,10 +111,14 @@ do
 		shift 2;;
 	-c|--compiler)
 		check_arg $1 "$2"
-		if ! is_in "$2" "${available_compilers[@]}" ; then
-			msg_err "$2 is not in the list of available compilers."
+		key_var=
+		if is_key_in "$2" "$(declare -p available_compilers)" ; then
+			compilers["$2"]="${available_compilers["$2"]}"
+		elif get_key_from_name "$2" "$(declare -p available_compilers)" "key_var"; then
+			compilers["$key_var"]="$2"
+		else
+			msg_err "$2 is not in the list of available compilers (nor their aliases)"
 		fi
-		compilers+=("$2")
 		shift 2;;
 	-p|--private)
 		priv=1
@@ -110,12 +145,14 @@ if [ "${#compilers[@]}" -eq 0 ]; then
 	# These are the default compilers.
 	# Native and cross-builds possible on the same host, and a native build with
 	# clang to check compatibility with non-gcc
-	compilers=("${available_compilers[@]}")
+	for k in "${!available_compilers[@]}" ; do
+		compilers["$k"]="${available_compilers["$k"]}"
+	done
 fi
 
 echo "buildbot=${buildbot}"
 echo "flashrom_source=${flashrom_source}"
-echo "compilers=${compilers[@]}"
+echo "compilers=${!compilers[@]}"
 echo "flashrom_opts=${flashrom_opts[@]}"
 echo
 
@@ -137,33 +174,36 @@ cd "${flashrom_source}"
 
 errors=0
 error_builds=()
-for cc in "${compilers[@]}"; do
-	echo "Starting $cc build in $(pwd)"
+for ck in "${!compilers[@]}"; do
+	cc="${compilers[$ck]}"
+	echo "Starting $ck ($cc) build in $(pwd)"
 	cur_err=0
 	if [ "$dryrun" -ne 1 ]; then
-		mkdir "$resultdir/$cc" || cur_err=1
+		outdir="$resultdir/$ck"
+		mkdir "$outdir" || cur_err=1
 		# We are not interested in cleanup logs for the previous run.
 		gmake distclean >/dev/null 2>&1
 		build-prepare "$newid" "$cc"
-		build-execute "$newid" "$cc" gmake distclean 2>&1 | tee "$resultdir/$cc/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
-		build-execute "$newid" "$cc" gmake CC="$cc" ${flashrom_opts[@]} 2>&1 | tee -a "$resultdir/$cc/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
-		build-fetch "$newid" "$cc" "$resultdir/$cc/" flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe 2>/dev/null
-		build-execute "$newid" "$cc" gmake distclean 2>&1 | tee -a "$resultdir/$cc/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
+		build-execute "$newid" "$cc" gmake distclean 2>&1 | tee "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
+		build-execute "$newid" "$cc" gmake CC="$cc" ${flashrom_opts[@]} 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
+		build-fetch "$newid" "$cc" "$outdir/" flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe 2>/dev/null
+		build-execute "$newid" "$cc" gmake distclean 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
 		build-destroy "$newid" "$cc"
 	fi
 	if [ ${cur_err} -ne 0 ]; then
 		errors=$(($errors + 1))
-		echo "The build with $cc above failed."
-		error_builds+=("$cc")
+		echo "The build with $ck ($cc) above failed."
+		error_builds+=("$ck")
 	fi
 done
+
 echo "Done (${errors} errors)!"
 if [ $errors -ne 0 ]; then
 	echo "The following builds failed:"
-	for b in "${error_builds[@]}"; do
-		echo "$b"
+	for ck in "${error_builds[@]}"; do
+		echo "$ck (${compilers[$ck]})"
 	done
 fi
 test "$dryrun" -eq 1 ||  echo "Results in ${resultdir}"
-test "$priv" -eq 1 -o "$dryrun" -eq 1 || chmod go+rx $resultdir
+test "$priv" -eq 1 -o "$dryrun" -eq 1 || chmod go+rx "$resultdir"
 exit $errors
