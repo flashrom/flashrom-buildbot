@@ -12,7 +12,7 @@ declare -A available_compilers=([dos]=i586-pc-msdosdjgpp-gcc
 				[ppc]=ppc-linux-gnueabi-gcc
 				[clang]=clang
 				[openbsd]=i386-openbsd-gcc
-				[libpayload]="CC=gcc /home/flashrom-buildbot/coreboot/payloads/libpayload/bin/lpgcc")
+				[libpayload]="CC=/home/flashrom-buildbot/coreboot/util/crossgcc/xgcc/bin/i386-elf-gcc /home/flashrom-buildbot/coreboot/payloads/libpayload/bin/lpgcc")
 
 # checks if parameter is an element in an array. invocation example: is_in "gcc" "${available_compilers[@]}"
 is_in () {
