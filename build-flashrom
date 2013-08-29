@@ -168,8 +168,13 @@ else
 	echo "Starting Build #${newid}"
 	resultdir=$(mktemp -d ${buildbot}/public_html/buildresults/flashrom-${newid}-XXX)
 	results_file="${resultdir}/results.txt"
-	echo -n $(basename ${resultdir}) >${buildbot}/public_html/buildresults/latest-build.txt
-	test $priv -eq 1 || echo -n $(basename ${resultdir}) >${buildbot}/public_html/buildresults/latest-public-build.txt
+	resultbase=$(basename ${resultdir})
+	echo -n ${resultbase} >${buildbot}/public_html/buildresults/latest-build.txt
+	ln -s -f -T "${resultbase}" "${buildbot}/public_html/buildresults/latest-build"
+	if [ $priv -ne 1 ]; then
+		echo -n "${resultbase}" >${buildbot}/public_html/buildresults/latest-public-build.txt
+		ln -s -f -T "${resultbase}" "${buildbot}/public_html/buildresults/latest-public-build"
+	fi
 	echo "Build was requested in \"${flashrom_source}\"" >>"${results_file}"
 	echo "for ${!compilers[@]}" >>"${results_file}"
 	echo "with arguments \"${flashrom_opts[@]}\"." >>"${results_file}"
