@@ -16,6 +16,12 @@ case "$compiler" in
 			scp -p compiler@192.168.56.10:buildbot/$instance/$file $dest/
 		done
 		;;
+	amd64-dragonflybsd-gcc)
+		# This will explode for files with spaces in the name.
+		for file in $*; do
+			scp -p compiler@192.168.56.12:buildbot/$instance/$file $dest/
+		done
+		;;
 	*)
 		cp -a -t "$dest" $*
 		;;

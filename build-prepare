@@ -12,6 +12,10 @@ case "$2" in
 		handle_vbox_vm start NetBSD-6.1-amd64 192.168.56.10 /sbin/poweroff || exit 1
 		tar czf - . | ssh compiler@192.168.56.10 "mkdir -p ~/buildbot/$1; cd ~/buildbot/$1; tar xzf -"
 		;;
+	amd64-dragonflybsd-gcc)
+		handle_vbox_vm start DragonFlyBSD-3.4.2-amd64 192.168.56.12 "halt -p" || exit 1
+		tar czf - . | ssh compiler@192.168.56.12 "mkdir -p ~/buildbot/$1; cd ~/buildbot/$1; tar xzf -"
+		;;
 	*)
 		;;
 esac

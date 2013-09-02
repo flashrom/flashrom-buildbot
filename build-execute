@@ -9,6 +9,9 @@ case "$compiler" in
 	amd64-netbsd-gcc)
 		ssh compiler@192.168.56.10 "cd ~/buildbot/$instance; $@"
 		;;
+	amd64-dragonflybsd-gcc)
+		ssh compiler@192.168.56.12 "cd ~/buildbot/$instance; $@"
+		;;
 	*)
 		"$@"
 		;;
