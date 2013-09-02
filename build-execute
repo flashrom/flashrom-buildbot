@@ -4,7 +4,10 @@ compiler="$2"
 shift 2
 case "$compiler" in
 	i386-openbsd-gcc)
-		ssh compiler@192.168.56.128 "cd buildbot/$instance; $@"
+		ssh compiler@192.168.56.11 "cd ~/buildbot/$instance; $@"
+		;;
+	amd64-netbsd-gcc)
+		ssh compiler@192.168.56.10 "cd ~/buildbot/$instance; $@"
 		;;
 	*)
 		"$@"

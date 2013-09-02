@@ -1,10 +1,16 @@
 #!/bin/bash
+
+. /home/flashrom-buildbot/buildbot/handle_vbox_vm.sh
+
 echo "Running in $(pwd)"
 case "$2" in
 	i386-openbsd-gcc)
-		vm-openbsd-i386 start || exit 1
-		echo "Running in $(pwd)"
-		tar czf - . | ssh compiler@192.168.56.128 "mkdir -p buildbot/$1; cd buildbot/$1; tar xzf -"
+		handle_vbox_vm start OpenBSD-i386 192.168.56.11 "halt -p" || exit 1
+		tar czf - . | ssh compiler@192.168.56.11 "mkdir -p ~/buildbot/$1; cd ~/buildbot/$1; tar xzf -"
+		;;
+	amd64-netbsd-gcc)
+		handle_vbox_vm start NetBSD-6.1-amd64 192.168.56.10 /sbin/poweroff || exit 1
+		tar czf - . | ssh compiler@192.168.56.10 "mkdir -p ~/buildbot/$1; cd ~/buildbot/$1; tar xzf -"
 		;;
 	*)
 		;;
