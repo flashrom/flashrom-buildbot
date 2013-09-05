@@ -31,6 +31,8 @@ declare -A vm_cmds=([netbsd]="/sbin/halt -p"
 		    [openbsd]="halt -p"
 		    [dragonflybsd]="/sbin/halt -p")
 
+declare -A vms_were_running
+
 # checks if parameter is an element in an array. invocation example: is_in "gcc" "${available_compilers[@]}"
 is_in () {
 	arr=$1
@@ -211,9 +213,10 @@ start_vbox_vm () {
 
 	deadline=$(date -d 3mins +%s)
 	if VBoxManage list runningvms | grep -q "${vmname}" ; then
+		vms_were_running[$ck]=1
 		echo "${vmname} VM is already running."
 	else
-		VBoxHeadless --startvm "${vmname}" --vrde off &
+		VBoxHeadless --startvm "${vmname}" --vrde off >/dev/null &
 	fi
 
 	until ssh compiler@${vmip} true >/dev/null 2>&1; do
@@ -230,6 +233,7 @@ start_vbox_vm () {
 
 stop_vbox_vm () {
 	local ck=$1
+	local vm_was_running="${vms_were_running[$ck]}"
 	local vmname="${vm_names[$ck]}"
 	local vmip=${vm_ips[$ck]}
 	local vmhaltcmd=${vm_cmds[$ck]}
@@ -238,11 +242,25 @@ stop_vbox_vm () {
 		echo "${vmname} VM is already stopped. Nothing done."
 		return 0
 	}
+	if [ -n "$vm_was_running" ] && [ "$vm_was_running" -eq 1 ]; then
+		echo "${vmname} VM was not started by this build run. Leaving it alone."
+		return 0
+	fi
+
+	if VBoxManage controlvm ${vmname} savestate >/dev/null 2>&1 ; then
+		echo "${vmname} VM state saved successfully."
+		return 0
+	else
+		echo "Saving ${vmname} VM state failed. Trying to shut it down instead..."
+	fi
 	ssh root@${vmip} ${vmhaltcmd}>/dev/null 2>&1
 
 	while ping -c 1 ${vmip} >/dev/null 2>&1; do
 		if [ $(date +%s) -ge ${deadline} ]; then
-			echo "Still reachable after timeout, aborting"
+			echo "Still reachable after timeout, enforcing shutdown"
+			VBoxManage controlvm ${vmname} acpipowerbutton >/dev/null
+			sleep 15
+			VBoxManage controlvm ${vmname} poweroff >/dev/null
 			sanitize_vbox_vm ${vmname}
 			return 1
 		fi
