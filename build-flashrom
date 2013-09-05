@@ -16,6 +16,21 @@ declare -A available_compilers=([dos]=i586-pc-msdosdjgpp-gcc
 				[dragonflybsd]=amd64-dragonflybsd-gcc
 				[libpayload]="CC=/home/flashrom-buildbot/coreboot/util/crossgcc/xgcc/bin/i386-elf-gcc /home/flashrom-buildbot/coreboot/payloads/libpayload/bin/lpgcc")
 
+declare -A vm_names=([netbsd]=NetBSD-6.1-amd64
+		     [openbsd]=OpenBSD-i386
+		     [dragonflybsd]=DragonFlyBSD-3.4.2-amd64)
+
+declare -A vm_ips=([netbsd]=192.168.56.10
+		   [openbsd]=192.168.56.11
+		   [dragonflybsd]=192.168.56.12)
+
+# I almost lost my insanity trying to provide a single command for this.
+# NetBSD and DargonFlyBSD are missing /sbin/ in its PATH for non-login shells, but the real problem is DragonFlyBSDs
+# which is just completely broken and I could not find a way to append to its PATH without breaking the other OSes.
+declare -A vm_cmds=([netbsd]="/sbin/halt -p"
+		    [openbsd]="halt -p"
+		    [dragonflybsd]="/sbin/halt -p")
+
 # checks if parameter is an element in an array. invocation example: is_in "gcc" "${available_compilers[@]}"
 is_in () {
 	arr=$1
@@ -181,42 +196,177 @@ else
 	echo "for ${!compilers[@]}" >>"${results_file}"
 	echo "with arguments \"${flashrom_opts[@]}\"." >>"${results_file}"
 fi
-cd "${flashrom_source}"
 
-errors=0
-error_builds=()
-for ck in "${!compilers[@]}"; do
-	cc="${compilers[$ck]}"
-	echo "Starting $ck ($cc) build in $(pwd)"
-	cur_err=0
-	if [ "$dryrun" -ne 1 ]; then
-		outdir="$resultdir/$ck"
-		mkdir "$outdir" || cur_err=1
-		# We are not interested in cleanup logs for the previous run.
-		gmake distclean >/dev/null 2>&1
-		build-prepare "$newid" "$cc"
-		build-execute "$newid" "$cc" gmake distclean 2>&1 | tee "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
-		build-execute "$newid" "$cc" gmake CC="$cc" ${flashrom_opts[@]} 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
-		build-fetch "$newid" "$cc" "$outdir/" flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe 2>/dev/null
-		build-execute "$newid" "$cc" gmake distclean 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
-		build-destroy "$newid" "$cc"
-	fi
-	if [ ${cur_err} -ne 0 ]; then
-		errors=$(($errors + 1))
-		echo "The build with $ck ($cc) above failed."
-		error_builds+=("$ck")
-	fi
-done
+# Parameter parsing and verification done.
+# The real action starts below: first some helper functions to deal with managing VMs, then command abstractions to access the OS inside VMs, and finally main()
 
-echo "Done (${errors} errors)!"
-echo >>"${results_file}"
-echo "${errors} errors" >>"${results_file}"
-if [ $errors -ne 0 ]; then
-	echo "The following builds failed:" | tee -a "${results_file}"
-	for ck in "${error_builds[@]}"; do
-		echo "$ck (${compilers[$ck]})" | tee -a "${results_file}"
+sanitize_vbox_vm () {
+	chmod 660 "/home/flashrom-buildbot/VirtualBox VMs/${1}/${1}.vbox"
+}
+
+start_vbox_vm () {
+	local ck=$1
+	local vmname=${vm_names[$ck]}
+	local vmip=${vm_ips[$ck]}
+
+	deadline=$(date -d 3mins +%s)
+	if VBoxManage list runningvms | grep -q "${vmname}" ; then
+		echo "${vmname} VM is already running."
+	else
+		VBoxHeadless --startvm "${vmname}" --vrde off &
+	fi
+
+	until ssh compiler@${vmip} true >/dev/null 2>&1; do
+		if [ $(date +%s) -ge ${deadline} ]; then
+			echo "No ssh connection within timeout, aborting"
+			stop_vbox_vm $ck
+			return 1
+		fi
+		echo "Waiting for ${vmname} VM to get reachable (for $((${deadline}-$(date +%s))) more secs)..."
+		sleep 5
 	done
-fi
-test "$dryrun" -eq 1 ||  echo "Results in ${resultdir}"
-test "$priv" -eq 1 -o "$dryrun" -eq 1 || chmod go+rx "$resultdir"
-exit $errors
+	echo "${vmname} VM started and waiting for commands."
+}
+
+stop_vbox_vm () {
+	local ck=$1
+	local vmname="${vm_names[$ck]}"
+	local vmip=${vm_ips[$ck]}
+	local vmhaltcmd=${vm_cmds[$ck]}
+	local deadline=$(date -d 2mins +%s)
+	VBoxManage list runningvms|grep -q "${vmname}" || {
+		echo "${vmname} VM is already stopped. Nothing done."
+		return 0
+	}
+	ssh root@${vmip} ${vmhaltcmd}>/dev/null 2>&1
+
+	while ping -c 1 ${vmip} >/dev/null 2>&1; do
+		if [ $(date +%s) -ge ${deadline} ]; then
+			echo "Still reachable after timeout, aborting"
+			sanitize_vbox_vm ${vmname}
+			return 1
+		fi
+		echo "Waiting for ${vmname} VM to get disconnected (for $((${deadline}-$(date +%s))) more secs)..."
+		sleep 5
+	done
+
+	while VBoxManage list runningvms|grep -q "${vmname}"; do
+		if [ $(date +%s) -ge ${deadline} ]; then
+			echo "VM still running after timeout, aborting"
+			sanitize_vbox_vm ${vmname}
+			return 1
+		fi
+		echo "Waiting for ${vmname} VM to stop (for $((${deadline}-$(date +%s))) more secs)..."
+		sleep 5
+	done
+	sanitize_vbox_vm ${vmname}
+	echo "${vmname} VM stopped."
+}
+
+build_prepare () {
+	local ck="$1"
+	local instance="$2"
+	shift 2
+	case "$ck" in
+		openbsd | \
+		netbsd | \
+		dragonflybsd)
+			start_vbox_vm "$ck" || return 1
+			tar czf - --format=ustar . | ssh compiler@${vm_ips[$ck]} "mkdir -p ~/buildbot/$instance; cd ~/buildbot/$instance; tar xzf -"
+			;;
+		*)
+			;;
+	esac
+}
+
+build_execute () {
+	local ck="$1"
+	local instance="$2"
+	shift 2
+	case "$ck" in
+		openbsd | \
+		netbsd | \
+		dragonflybsd)
+			ssh compiler@${vm_ips[$ck]} "cd ~/buildbot/$instance && $@"
+			;;
+		*)
+			"$@"
+			;;
+	esac
+}
+
+build_fetch () {
+	local ck="$1"
+	local instance="$2"
+	local dest="$3"
+	shift 3
+	case "$ck" in
+		openbsd | \
+		netbsd | \
+		dragonflybsd)
+			# This will explode for files with spaces in the name.
+			for file in $*; do
+				scp -p compiler@${vm_ips[$ck]}:buildbot/$instance/$file $dest/
+			done
+			;;
+		*)
+			cp -a -t "$dest" $*
+			;;
+	esac
+}
+
+build_destroy () {
+	local ck="$1"
+	local instance="$2"
+	shift 2
+	case "$ck" in
+		openbsd | \
+		netbsd | \
+		dragonflybsd)
+			stop_vbox_vm "$ck" || return 1
+			;;
+		*)
+			;;
+	esac
+}
+
+main () {
+	cd "${flashrom_source}"
+	local errors=0
+	local error_builds=()
+	for ck in "${!compilers[@]}"; do
+		local cc="${compilers[$ck]}"
+		local cur_err=0
+		echo "Starting $ck ($cc) build in $(pwd)"
+		if [ "$dryrun" -ne 1 ]; then
+			local outdir="$resultdir/$ck"
+			mkdir "$outdir" || cur_err=1
+			[ "$cur_err" -ne 1 ] && build_prepare "$ck" "$newid" || cur_err=1
+			[ "$cur_err" -ne 1 ] && build_execute "$ck" "$newid" gmake distclean 2>&1 | tee "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
+			[ "$cur_err" -ne 1 ] && build_execute "$ck" "$newid" gmake CC="$cc" ${flashrom_opts[@]} 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
+			[ "$cur_err" -ne 1 ] && build_fetch   "$ck" "$newid" "$outdir/" flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe 2>/dev/null
+			[ "$cur_err" -ne 1 ] && build_execute "$ck" "$newid" gmake distclean 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
+			[ "$cur_err" -ne 1 ] && build_destroy "$ck" "$newid" || cur_err=1
+		fi
+		if [ ${cur_err} -ne 0 ]; then
+			errors=$(($errors + 1))
+			echo "The build with $ck ($cc) above failed."
+			error_builds+=("$ck")
+		fi
+	done
+
+	echo "Done (${errors} errors)!"
+	echo >>"${results_file}"
+	echo "${errors} errors" >>"${results_file}"
+	if [ $errors -ne 0 ]; then
+		echo "The following builds failed:" | tee -a "${results_file}"
+		for ck in "${error_builds[@]}"; do
+			echo "$ck (${compilers[$ck]})" | tee -a "${results_file}"
+		done
+	fi
+	test "$dryrun" -eq 1 ||  echo "Results in ${resultdir}"
+	test "$priv" -eq 1 -o "$dryrun" -eq 1 || chmod go+rx "$resultdir"
+	exit $errors
+}
+
+main
