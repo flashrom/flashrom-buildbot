@@ -105,6 +105,9 @@ flashrom_opts=()
 priv=0
 dryrun=0
 
+# constants
+workdir_base="/tmp"
+
 while [ $# -gt 0 ];
 do
 	case ${1} in
@@ -191,6 +194,9 @@ if [ "$dryrun" -eq 1 ]; then
 else
 	echo "Starting Build #${newid}"
 	resultdir=$(mktemp -d ${buildbot}/public_html/buildresults/flashrom-${newid}-XXX)
+	if [ ! -d ${resultdir} ]; then
+		msg_err "Could not create temporary directory."
+	fi
 	results_file="${resultdir}/results.txt"
 	resultbase=$(basename ${resultdir})
 	echo -n ${resultbase} >${buildbot}/public_html/buildresults/latest-build.txt
@@ -288,92 +294,100 @@ stop_vbox_vm () {
 
 build_prepare () {
 	local ck="$1"
-	local instance="$2"
-	shift 2
+	shift 1
+	local workdir="${workdir_base}/${resultbase}/${ck}"
 	case "$ck" in
 		openbsd | \
 		netbsd | \
 		dragonflybsd)
 			start_vbox_vm "$ck" || return 1
-			tar czf - --format=ustar . | ssh compiler@${vm_ips[$ck]} "mkdir -p ~/buildbot/$instance; cd ~/buildbot/$instance; tar xzf -"
+			tar czf - -C "${flashrom_source}" --format=ustar . | ssh compiler@${vm_ips[$ck]} "mkdir -p ~/buildbot/${resultbase}; cd ~/buildbot/${resultbase}; tar xzf -"
 			;;
 		*)
+			mkdir -p "${workdir}" && cp -a "${flashrom_source}/." "${workdir}"
 			;;
 	esac
 }
 
 build_execute () {
 	local ck="$1"
-	local instance="$2"
-	shift 2
+	shift 1
+	local workdir="${workdir_base}/${resultbase}/${ck}"
 	case "$ck" in
 		openbsd | \
 		netbsd | \
 		dragonflybsd)
-			ssh compiler@${vm_ips[$ck]} "cd ~/buildbot/$instance && $@"
+			ssh compiler@${vm_ips[$ck]} "cd ~/buildbot/${resultbase} && $@"
 			;;
 		*)
-			"$@"
+			cd "${workdir}" && "$@"
 			;;
 	esac
 }
 
 build_fetch () {
 	local ck="$1"
-	local instance="$2"
-	local dest="$3"
-	shift 3
-	case "$ck" in
-		openbsd | \
-		netbsd | \
-		dragonflybsd)
-			# This will explode for files with spaces in the name.
-			for file in $*; do
-				scp -p compiler@${vm_ips[$ck]}:buildbot/$instance/$file $dest/
-			done
-			;;
-		*)
-			cp -a -t "$dest" $*
-			;;
-	esac
+	local dest="$2"
+	shift 2
+	local workdir="${workdir_base}/${resultbase}/${ck}"
+	for file in "$@"; do
+		case "$ck" in
+			openbsd | \
+			netbsd | \
+			dragonflybsd)
+				scp -p "compiler@${vm_ips[$ck]}:\"buildbot/${resultbase}/${file}\"" "$dest/"
+				;;
+			*)
+				cp -a -t "$dest" "${workdir}/${file}"
+				;;
+		esac
+	done
 }
 
 build_destroy () {
 	local ck="$1"
-	local instance="$2"
-	shift 2
+	shift 1
+	local workdir="${workdir_base}/${resultbase}/${ck}"
 	case "$ck" in
 		openbsd | \
 		netbsd | \
 		dragonflybsd)
+			ssh compiler@${vm_ips[$ck]} "rm -rf ~/buildbot/${resultbase}"
 			stop_vbox_vm "$ck" || return 1
 			;;
 		*)
+			rm -rf "${workdir}"
 			;;
 	esac
 }
 
+build_it () {
+	local ck=$1
+	local cc="${compilers[$ck]}"
+	local cur_err=0
+	echo "Starting $ck ($cc) build of ${flashrom_source}"
+	if [ "$dryrun" -ne 1 ]; then
+		local outdir="$resultdir/$ck"
+		mkdir "$outdir" || cur_err=1
+		[ "$cur_err" -ne 1 ] && build_prepare "$ck" || cur_err=1
+		[ "$cur_err" -ne 1 ] && build_execute "$ck" gmake CC="$cc" ${flashrom_opts[@]} 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
+		[ "$cur_err" -ne 1 ] && build_fetch   "$ck" "$outdir/" flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe 2>/dev/null
+		[ "$cur_err" -ne 1 ] && build_execute "$ck" gmake distclean 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
+		build_destroy "$ck" || cur_err=1 # unconditionally clean up
+	fi
+	return $cur_err
+}
+
 main () {
-	cd "${flashrom_source}"
 	local errors=0
 	local error_builds=()
+	# clean up first
+	test "$dryrun" -eq 1 || gmake -C "${flashrom_source}" ${flashrom_opts[@]} distclean 2>&1
 	for ck in "${!compilers[@]}"; do
-		local cc="${compilers[$ck]}"
-		local cur_err=0
-		echo "Starting $ck ($cc) build in $(pwd)"
-		if [ "$dryrun" -ne 1 ]; then
-			local outdir="$resultdir/$ck"
-			mkdir "$outdir" || cur_err=1
-			[ "$cur_err" -ne 1 ] && build_prepare "$ck" "$newid" || cur_err=1
-			[ "$cur_err" -ne 1 ] && build_execute "$ck" "$newid" gmake distclean 2>&1 | tee "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
-			[ "$cur_err" -ne 1 ] && build_execute "$ck" "$newid" gmake CC="$cc" ${flashrom_opts[@]} 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
-			[ "$cur_err" -ne 1 ] && build_fetch   "$ck" "$newid" "$outdir/" flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe 2>/dev/null
-			[ "$cur_err" -ne 1 ] && build_execute "$ck" "$newid" gmake distclean 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
-			[ "$cur_err" -ne 1 ] && build_destroy "$ck" "$newid" || cur_err=1
-		fi
-		if [ ${cur_err} -ne 0 ]; then
+		build_it $ck
+		if [ "$?" -ne 0 ]; then
 			errors=$(($errors + 1))
-			echo "The build with $ck ($cc) above failed."
+			echo "The build with $ck (${compilers[$ck]}) above failed."
 			error_builds+=("$ck")
 		fi
 	done
@@ -387,7 +401,8 @@ main () {
 			echo "$ck (${compilers[$ck]})" | tee -a "${results_file}"
 		done
 	fi
-	test "$dryrun" -eq 1 ||  echo "Results in ${resultdir}"
+	test "$dryrun" -eq 1 || echo "Results in ${resultdir}"
+	test "$dryrun" -eq 1 || rmdir "${workdir_base}/${resultbase}/" 2>/dev/null # not created for VM-only builds
 	test "$priv" -eq 1 -o "$dryrun" -eq 1 || chmod go+rx "$resultdir"
 	exit $errors
 }
