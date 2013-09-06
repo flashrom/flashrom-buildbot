@@ -169,6 +169,11 @@ if [ "${#compilers[@]}" -eq 0 ]; then
 	done
 fi
 
+# hack for dos libraries
+if is_key_in "dos" "$(declare -p compilers)"; then
+	flashrom_opts+="DOSLIBS_BASE=${buildbot}"
+fi
+
 echo "buildbot=${buildbot}"
 echo "flashrom_source=${flashrom_source}"
 echo "compilers=${!compilers[@]}"
