@@ -66,7 +66,7 @@ get_key_from_name () {
 
 show_help() {
 	echo "Usage:
-${0} [-p] [-n] [-b buildbot] [-s sourcepath] [-c compiler]... [flashrom build options]
+${0} [-p] [-n] [-b buildbot] [-s sourcepath] [-j numthreads] [-c compiler]... [flashrom build options]
 
 Options
     -h or --help
@@ -81,6 +81,8 @@ Options
         adds a compiler to the list of compilers to use (replaces the default list, can be given multiple times)
     -p or --private
         do not make results public
+    -j or --threads
+        maximum number of concurrent build jobs
 
     Possible compilers are: ${!available_compilers[@]}"
 	exit 1
@@ -104,6 +106,7 @@ declare -A compilers=()
 flashrom_opts=()
 priv=0
 dryrun=0
+j=16 # default threads
 
 # constants
 workdir_base="/tmp"
@@ -145,6 +148,13 @@ do
 	-p|--private)
 		priv=1
 		shift;;
+	-j|--threads)
+		check_arg $1 "$2"
+		if [ "$2" -lt 1 ]; then
+			msg_err "Less than 1 concurrent process is a bad idea. $2 requested."
+		fi
+		j="$2"
+		shift 2;;
 	-*)
 		show_help;
 		msg_err "invalid option: $1"
@@ -381,11 +391,28 @@ build_it () {
 main () {
 	local errors=0
 	local error_builds=()
+	local -A cc_pids=()
 	# clean up first
 	test "$dryrun" -eq 1 || gmake -C "${flashrom_source}" ${flashrom_opts[@]} distclean 2>&1
 	for ck in "${!compilers[@]}"; do
-		build_it $ck
-		if [ "$?" -ne 0 ]; then
+		while [ $(jobs 2>&1 | grep -c Running) -ge "$j" ]; do
+			sleep 1
+		done
+		build_it "$ck" &
+		cc_pids+=(["$ck"]="$!")
+	done
+
+	for ck in "${!compilers[@]}"; do
+		pid=${cc_pids[$ck]}
+		local cur_err=0
+		if [ -z "$pid" ]; then
+			echo "No Job ID known for the $ck process"
+			cur_err=1
+		else
+			wait $pid
+			cur_err=$?
+		fi
+		if [ "$cur_err" -ne 0 ]; then
 			errors=$(($errors + 1))
 			echo "The build with $ck (${compilers[$ck]}) above failed."
 			error_builds+=("$ck")
