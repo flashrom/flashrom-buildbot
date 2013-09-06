@@ -1,0 +1,24 @@
+#! /bin/bash
+
+declare -A vm_names=([netbsd]=NetBSD-6.1-amd64
+		     [openbsd]=OpenBSD-i386
+		     [dragonflybsd]=DragonFlyBSD-3.4.2-amd64)
+
+save_vm () {
+	local vmname="$1"
+	if ! VBoxManage list runningvms|grep -q "${vmname}"; then
+		echo "${vmname} VM is already stopped. Nothing done."
+		return 0
+	fi
+	VBoxManage controlvm "${vmname}" savestate 2>/dev/null
+	if [ "$?" -eq 0 ]; then
+		echo "Saved ${vmname} VM successfully"
+	else
+		echo "Saving ${vmname} VM failed"
+	fi
+}
+
+for vmname in ${vm_names[@]} ; do
+	save_vm ${vmname} &
+done
+wait
