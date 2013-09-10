@@ -66,7 +66,7 @@ get_key_from_name () {
 
 show_help() {
 	echo "Usage:
-${0} [-p] [-n] [-b buildbot] [-s sourcepath] [-j numthreads] [-c compiler]... [flashrom build options]
+${0} [-p] [-n] [-b buildbot] [-s sourcepath] [-j numthreads] [-nc] [-c compiler]... [flashrom build options]
 
 Options
     -h or --help
@@ -83,6 +83,8 @@ Options
         do not make results public
     -j or --threads
         maximum number of concurrent build jobs
+    -nc or --no-cleanup
+        do not cleanup working directories
 
     Possible compilers are: ${!available_compilers[@]}"
 	exit 1
@@ -105,6 +107,7 @@ flashrom_source=.
 declare -A compilers=()
 flashrom_opts=()
 priv=0
+cleanup=1
 dryrun=0
 j=16 # default threads
 
@@ -147,6 +150,9 @@ do
 		shift 2;;
 	-p|--private)
 		priv=1
+		shift;;
+	-nc|--no-cleanup)
+		cleanup=0
 		shift;;
 	-j|--threads)
 		check_arg $1 "$2"
@@ -362,11 +368,12 @@ build_destroy () {
 		openbsd | \
 		netbsd | \
 		dragonflybsd)
-			ssh compiler@${vm_ips[$ck]} "rm -rf ~/buildbot/${resultbase}"
-			stop_vbox_vm "$ck" || return 1
+			test "$cleanup" -eq 1 && ssh compiler@${vm_ips[$ck]} "rm -rf ~/buildbot/${resultbase}"
+			stop_vbox_vm "$ck"
 			;;
 		*)
-			rm -rf "${workdir}"
+			test "$cleanup" -eq 1 && rm -rf "${workdir}"
+			return 0
 			;;
 	esac
 }
@@ -379,10 +386,10 @@ build_it () {
 	if [ "$dryrun" -ne 1 ]; then
 		local outdir="$resultdir/$ck"
 		mkdir "$outdir" || cur_err=1
-		[ "$cur_err" -ne 1 ] && build_prepare "$ck" || cur_err=1
-		[ "$cur_err" -ne 1 ] && build_execute "$ck" gmake CC="$cc" ${flashrom_opts[@]} 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
-		[ "$cur_err" -ne 1 ] && build_fetch   "$ck" "$outdir/" flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe 2>/dev/null
-		[ "$cur_err" -ne 1 ] && build_execute "$ck" gmake distclean 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1
+		[ "$cur_err" -ne 1 ] && { build_prepare "$ck" || cur_err=1; }
+		[ "$cur_err" -ne 1 ] && { build_execute "$ck" gmake CC="$cc" ${flashrom_opts[@]} 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1; }
+		[ "$cur_err" -ne 1 ] && build_fetch   "$ck" "$outdir/" flashrom.8 flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe 2>/dev/null
+		[ "$cur_err" -ne 1 ] && [ "$cleanup" -eq 1 ] && { build_execute "$ck" gmake distclean 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1; }
 		build_destroy "$ck" || cur_err=1 # unconditionally clean up
 	fi
 	return $cur_err
