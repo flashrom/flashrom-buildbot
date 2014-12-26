@@ -1,0 +1,22 @@
+#!/bin/sh -e
+
+usage () {
+	echo "$0 <vmname>"
+	exit 1
+}
+
+if [ $# -ne 1 ]; then
+	usage
+fi
+
+vmname=$1
+
+if VBoxManage list runningvms|grep -q "${vmname}"; then
+	VBoxManage controlvm "$vmname" poweroff
+fi
+
+
+VBoxManage unregistervm "$vmname" --delete
+
+VBoxManage dhcpserver remove --ifname vboxnet1
+VBoxManage hostonlyif remove vboxnet1

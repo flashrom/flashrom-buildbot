@@ -1,11 +1,14 @@
 #!/bin/bash
-sudo zypper addrepo http://download.opensuse.org/repositories/home:fstrba:msdos/openSUSE_12.2/home:fstrba:msdos.repo
-sudo zypper install djgpp-gcc
-sudo zypper addrepo http://download.opensuse.org/repositories/windows:mingw:win64/openSUSE_12.2/windows:mingw:win64.repo
-sudo zypper install mingw64-cross-gcc
-sudo zypper addrepo http://download.opensuse.org/repositories/windows:mingw:win32/openSUSE_12.2/windows:mingw:win32.repo
-sudo zypper install mingw32-cross-gcc
-sudo zypper addrepo http://download.opensuse.org/repositories/home:duwe:crosstools/openSUSE_12.2/home:duwe:crosstools.repo
-sudo zypper in cross-arm-linux-gnueabi-gcc cross-mips-linux-gcc cross-ppc-linux-gnueabi-gcc
-sudo zypper in cross-arm-linux-gnueabi-kernel-headers cross-mips-linux-kernel-headers cross-ppc-linux-gnueabi-kernel-headers
-sudo zypper in cross-arm-linux-gnueabi-glibc cross-mips-linux-glibc cross-ppc-linux-gnueabi-glibc
+
+##########
+# Debian #
+##########
+
+apt-get build-dep flashrom
+apt-get install linux-libc-dev:i386 clang gcc-mingw-w64 gcc-multilib gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf gcc-powerpc64le-linux-gnu  gcc-powerpc-linux-gnu
+
+# does not work
+#apt-get install emdebian-archive-keyring
+#echo 'deb http://emdebian.org/debian/ unstable main' > /etc/apt/sources.list.d/emdebian.list
+#apt-get update
+#apt-get install gcc-4.7-sparc-linux-gnu gcc-4.7-sparc64-linux-gnu gcc-4.7-mips-linux-gnu gcc-4.7-mipsel-linux-gnu

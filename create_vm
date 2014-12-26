@@ -1,0 +1,65 @@
+#!/bin/sh -e
+#
+# requires 
+#  - VBoxManage extpack install ...vbox-extpack
+#  - VBoxManage setproperty vrdeextpack "Oracle VM VirtualBox Extension Pack"
+#    To disable the VNC server allowing for RDP communication
+
+#dryrun="echo"
+
+usage () {
+	echo "$0 <vmname> <iso> [<ostype>, <memory>]"
+	exit 1
+}
+
+if [ $# -lt 2 -o $# -gt 4 ]; then
+	usage
+fi
+
+vmname=$1
+isoname=$2
+if [ $# -eq 3 ]; then
+	ostype=--ostype $3
+fi
+
+if [ $# -eq 4 ]; then
+	mem=$4
+else
+	mem=512
+fi
+
+if [ ! -r "$isoname" ]; then
+	echo "iso \"$isoname\" not readable"
+	exit 1
+fi
+
+hdname=~/VirtualBox\ VMs/$vmname/hdd1.vdi # oh my.
+ctlname="storagectl1"
+#ifcnt=`expr $(VBoxManage list hostonlyifs | grep GUID: | wc -l) + 1`
+ifcnt=$(VBoxManage list hostonlyifs | grep GUID: | wc -l)
+#hostonlyif="vboxnet$ifcnt"
+
+$dryrun VBoxManage createvm --name "$vmname" --register ${ostype} >/dev/null
+$dryrun VBoxManage storagectl "$vmname" --name "$ctlname" --add ide >/dev/null
+$dryrun VBoxManage createhd --filename "$hdname" --size 10240 >/dev/null
+$dryrun VBoxManage storageattach "$vmname" --storagectl "$ctlname" --port 0 --device 0 --type hdd --medium "$hdname" >/dev/null
+$dryrun VBoxManage storageattach "$vmname" --storagectl "$ctlname" --port 0 --device 1 --type dvddrive --medium "$isoname" >/dev/null
+$dryrun VBoxManage modifyvm "$vmname" --memory "$mem" --boot1 disk --boot2 dvd >/dev/null
+$dryrun VBoxManage modifyvm "$vmname" --vrdeport 500${ifcnt} --vrde on --vrdeauthtype external --vrdeaddress 127.0.0.1 >/dev/null
+$dryrun VBoxManage modifyvm "$vmname" --nic1 nat --nictype1 82540EM --natnet1 "192.168.$ifcnt.0/24" >/dev/null
+hostonlyif=$($dryrun VBoxManage hostonlyif create | sed -e "s/.*'\(.*\)'.*/\1/g")
+$dryrun VBoxManage hostonlyif ipconfig "$hostonlyif" --ip 10.0."$ifcnt".1 >/dev/null
+$dryrun VBoxManage modifyvm "$vmname" --nic2 hostonly --nictype2 82545EM --hostonlyadapter2 "$hostonlyif" >/dev/null
+$dryrun VBoxManage dhcpserver add --ifname "$hostonlyif" --enable --ip 10.0."$ifcnt".254 --netmask 255.255.255.0 --lowerip 10.0."$ifcnt".2 --upperip 10.0."$ifcnt".253 >/dev/null
+
+$dryrun VBoxHeadless --startvm "$vmname" >/dev/null &
+
+$dryrun printf "Now install the OS enter press enter when done with setting up the machine...\n"
+$dryrun read ignored
+
+$dryrun printf "Installing ssh pub key on root@10.0."$ifcnt".2\n"
+$dryrun ssh-copy-id -i ~/.ssh/id_rsa.pub root@10.0."$ifcnt".2
+$dryrun printf "Installing ssh pub key on flashrom@10.0."$ifcnt".2\n"
+$dryrun ssh-copy-id -i ~/.ssh/id_rsa.pub flashrom@10.0."$ifcnt".2
+
+

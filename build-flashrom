@@ -1,37 +1,48 @@
-#!/bin/bash
+#!/bin/bash -x
 # TODO: Handle tarballs later.
 
-declare -A available_compilers=([dos]=i586-pc-msdosdjgpp-gcc
-				[win32]=x86_64-w64-mingw32-gcc
-				[win64]=i686-w64-mingw32-gcc
-				[freebsd]=x86_64-pc-freebsd9-gcc
-				[gcc]=gcc
-				[gcc32]="gcc -m32"
-				[arm]=arm-linux-gnueabi-gcc
-				[mips]=mips-linux-gcc
-				[ppc]=ppc-linux-gnueabi-gcc
-				[clang]=clang
-				[openbsd]=i386-openbsd-gcc
-				[netbsd]=amd64-netbsd-gcc
-				[dragonflybsd]=amd64-dragonflybsd-gcc
-				[libpayload]="CC=/home/flashrom-buildbot/coreboot/util/crossgcc/xgcc/bin/i386-elf-gcc /home/flashrom-buildbot/coreboot/payloads/libpayload/bin/lpgcc")
+. buildbot.conf
 
-declare -A vm_names=([netbsd]=NetBSD-6.1-amd64
-		     [openbsd]=OpenBSD-i386
-		     [dragonflybsd]=DragonFlyBSD-3.4.2-amd64)
-
-declare -A vm_ips=([netbsd]=192.168.56.10
-		   [openbsd]=192.168.56.11
-		   [dragonflybsd]=192.168.56.12)
-
-# I almost lost my insanity trying to provide a single command for this.
-# NetBSD and DargonFlyBSD are missing /sbin/ in its PATH for non-login shells, but the real problem is DragonFlyBSDs
-# which is just completely broken and I could not find a way to append to its PATH without breaking the other OSes.
-declare -A vm_cmds=([netbsd]="/sbin/halt -p"
-		    [openbsd]="halt -p"
-		    [dragonflybsd]="/sbin/halt -p")
-
+# remembers the VMs that were already running
 declare -A vms_were_running
+
+# stores a mapping of vbox VM names and their IP addresses
+declare -A vbox_ips
+
+fill_vbox_ips() {
+	for ck in "${!compilers[@]}"; do
+		local vmname=${vbox_names[$ck]}
+		[ -z $vmname ] && continue
+		local hostonlyif=$(vboxmanage showvminfo ${vmname} --machinereadable | grep -oP '(?<=hostonlyadapter2=")[^"]+')
+		local vmip=$(VBoxManage list hostonlyifs | grep -ozP "(?s)Name: +${hostonlyif}.*?IPAddress:\N*" | grep -ozP "(?<=IPAddress:       )[0-9.]+")
+		vmip=${vmip%.1}.2
+		if ! valid_ip "$vmip" ; then
+			msg_err "Could not retrieve IP for $ck correctly (got $vmip)"
+		fi
+		vbox_ips["$ck"]=$vmip
+	done
+}
+
+# This code is based on one from Linux Journal June 26, 2008 
+valid_ip() {
+	local ip=$1
+
+	# Check the IP address under test to see if it matches the extended REGEX
+	regex="^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$"
+	if [[ ! $ip =~ $regex ]] ; then
+		return 1
+	fi
+	oifs=$IFS
+	IFS='.'
+	for num in $ip ; do
+		if [ $num -gt 255 ]; then
+			IFS=$oifs
+			return 1
+		fi
+	done
+	IFS=$oifs
+	return 0
+}
 
 # checks if parameter is an element in an array. invocation example: is_in "gcc" "${available_compilers[@]}"
 is_in () {
@@ -51,7 +62,7 @@ is_key_in () {
 }
 
 # checks if parameter is element in an associative array and returns the key in the 3rd variable.
-# invocation example: is_in "i586-pc-msdosdjgpp-gcc" "$(declare -p available_compilers)" "ret_val"
+# invocation example: get_key_from_name "i586-pc-msdosdjgpp-gcc" "$(declare -p available_compilers)" "ret_val"
 get_key_from_name () {
 	name="$1"
 	eval "local -A arr="${2#*=} # deserialize and eliminate old name/assignment
@@ -66,21 +77,21 @@ get_key_from_name () {
 
 show_help() {
 	echo "Usage:
-${0} [-p] [-n] [-b buildbot] [-s sourcepath] [-j numthreads] [-nc] [-c compiler]... [flashrom build options]
+${0} [-n] [-p/-np] [-s sourcepath] [-j numthreads] [-nc] [-c compiler]... [flashrom build options]
 
 Options
     -h or --help
         Display this message.
     -n or --dry-run
         Do not create any directories or files.
-    -b or --buildbot
-        path to buildbot home directory
+    -p or --private
+        do not make results public
+    -np or --public
+        *do* make results public
     -s or --source
         path to flashrom sources to build
     -c or --compiler
         adds a compiler to the list of compilers to use (replaces the default list, can be given multiple times)
-    -p or --private
-        do not make results public
     -j or --threads
         maximum number of concurrent build jobs
     -nc or --no-cleanup
@@ -102,14 +113,17 @@ check_arg () {
 }
 
 #default values
-buildbot="${BUILDBOT_HOME}"
 flashrom_source=.
+vm_user="flashrom"
+vm_workdir="/tmp/buildbot"
+www_root="/home/${vm_user}/public_html/buildbot.flashrom.org"
+libs_base="/home/${vm_user}/cross-libs"
 declare -A compilers=()
 flashrom_opts=()
-priv=0
+priv=-1
 cleanup=1
 dryrun=0
-j=16 # default threads
+j=2 # default threads
 
 # constants
 workdir_base="/tmp"
@@ -123,13 +137,6 @@ do
 	-n|--dry-run)
 		dryrun=1;
 		shift;;
-	-b|--buildbot)
-		check_arg $1 "$2"
-		if [ ! -d $2 ]; then
-			msg_err "$2 is not a valid directory."
-		fi
-		buildbot="$2"
-		shift 2;;
 	-s|--source)
 		check_arg $1 "$2"
 		if [ ! -d "$2" ]; then
@@ -149,7 +156,16 @@ do
 		fi
 		shift 2;;
 	-p|--private)
+		if [ "$priv" -eq 0 ]; then
+			msg_err "-p and -np are mutial exclusive."
+		fi
 		priv=1
+		shift;;
+	-np|--public)
+		if [ "$priv" -eq 1 ]; then
+			msg_err "-p and -np are mutial exclusive."
+		fi
+		priv=0
 		shift;;
 	-nc|--no-cleanup)
 		cleanup=0
@@ -166,13 +182,13 @@ do
 		msg_err "invalid option: $1"
 		;;
 	*)	# everything else are flashrom build parameters
-		flashrom_opts+=("$1")
+		flashrom_opts+=(" $1")
 		shift;;
 	esac;
 done
 
-if [ -z "${buildbot}" ]; then
-	msg_err "No buildbot directory given."
+if [ "$priv" -eq -1 ]; then
+	priv=1
 fi
 
 if [ ! -d "${flashrom_source}" -o ! -e "${flashrom_source}/flashrom.c" ]; then
@@ -188,38 +204,53 @@ if [ "${#compilers[@]}" -eq 0 ]; then
 	done
 fi
 
-# hack for dos libraries
-if is_key_in "dos" "$(declare -p compilers)"; then
-	flashrom_opts+="DOSLIBS_BASE=${buildbot}"
-fi
+# get the script path
+# http://stackoverflow.com/questions/59895/can-a-bash-script-tell-what-directory-its-stored-in
+script_path="${BASH_SOURCE[0]}"
+while [ -h "$script_path" ]; do # resolve $script_path until the file is no longer a symlink
+  buildbot_dir="$( cd -P "$( dirname "$script_path" )" && pwd )"
+  script_path="$(readlink "$script_path")"
+  # if $script_path was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+  [[ $script_path != /* ]] && script_path="$buildbot_dir/$script_path"
+done
+buildbot_dir="$( cd -P "$( dirname "$script_path" )" && pwd )"
 
-echo "buildbot=${buildbot}"
+fill_vbox_ips
+
+echo "buildbot_dir=${buildbot_dir}"
 echo "flashrom_source=${flashrom_source}"
 echo "compilers=${!compilers[@]}"
 echo "flashrom_opts=${flashrom_opts[@]}"
+echo "vbox_ips=${vbox_ips[@]}"
 echo
 
-PATH="${buildbot}/buildbot/:${PATH}"
+PATH="${buildbot_dir}:${PATH}"
 unset LANG
 
-lastid=$(sed 's/.*-\(.*\)-.*/\1/' ${buildbot}/public_html/buildresults/latest-build.txt)
+if [ ! -r ${www_root}/buildresults/latest-build.txt ]; then
+	lastid=-1
+else
+	lastid=$(sed 's/.*-\(.*\)-.*/\1/' ${www_root}/buildresults/latest-build.txt)
+fi
 newid=$(printf "%06d" $(expr $lastid + 1))
+
 if [ "$dryrun" -eq 1 ]; then
 	echo "Simulating Build #${newid}"
 	results_file=/dev/null
 else
 	echo "Starting Build #${newid}"
-	resultdir=$(mktemp -d ${buildbot}/public_html/buildresults/flashrom-${newid}-XXX)
-	if [ ! -d ${resultdir} ]; then
+	mkdir -p "${www_root}/buildresults"
+	resultdir=$(mktemp -d "${www_root}/buildresults/flashrom-${newid}-XXX")
+	if [ ! -d "${resultdir}" ]; then
 		msg_err "Could not create temporary directory."
 	fi
 	results_file="${resultdir}/results.txt"
-	resultbase=$(basename ${resultdir})
-	echo -n ${resultbase} >${buildbot}/public_html/buildresults/latest-build.txt
-	ln -s -f -T "${resultbase}" "${buildbot}/public_html/buildresults/latest-build"
+	resultbase=$(basename "${resultdir}")
+	echo -n "${resultbase}" >"${www_root}/buildresults/latest-build.txt"
+	ln -s -f -T "${resultbase}" "${www_root}/buildresults/latest-build"
 	if [ $priv -ne 1 ]; then
-		echo -n "${resultbase}" >${buildbot}/public_html/buildresults/latest-public-build.txt
-		ln -s -f -T "${resultbase}" "${buildbot}/public_html/buildresults/latest-public-build"
+		echo -n "${resultbase}" >"${www_root}/buildresults/latest-public-build.txt"
+		ln -s -f -T "${resultbase}" "${www_root}/buildresults/latest-public-build"
 	fi
 	echo "Build was requested in \"${flashrom_source}\"" >>"${results_file}"
 	echo "for ${!compilers[@]}" >>"${results_file}"
@@ -230,13 +261,14 @@ fi
 # The real action starts below: first some helper functions to deal with managing VMs, then command abstractions to access the OS inside VMs, and finally main()
 
 sanitize_vbox_vm () {
-	chmod 660 "/home/flashrom-buildbot/VirtualBox VMs/${1}/${1}.vbox"
+	vb_config=$(vboxmanage showvminfo ${1} --machinereadable | sed -ne 's/^CfgFile="\(.*\)"$/\1/p')
+	chmod 660 "vb_config"
 }
 
 start_vbox_vm () {
 	local ck=$1
-	local vmname=${vm_names[$ck]}
-	local vmip=${vm_ips[$ck]}
+	local vmname=${vbox_names[$ck]}
+	local vmip=${vbox_ips[$ck]}
 
 	deadline=$(date -d 3mins +%s)
 	if VBoxManage list runningvms | grep -q "${vmname}" ; then
@@ -246,7 +278,7 @@ start_vbox_vm () {
 		VBoxHeadless --startvm "${vmname}" --vrde off >/dev/null &
 	fi
 
-	until ssh compiler@${vmip} true >/dev/null 2>&1; do
+	until ssh ${vm_user}@${vmip} true >/dev/null 2>&1; do
 		if [ $(date +%s) -ge ${deadline} ]; then
 			echo "No ssh connection within timeout, aborting"
 			stop_vbox_vm $ck
@@ -261,9 +293,13 @@ start_vbox_vm () {
 stop_vbox_vm () {
 	local ck=$1
 	local vm_was_running="${vms_were_running[$ck]}"
-	local vmname="${vm_names[$ck]}"
-	local vmip=${vm_ips[$ck]}
-	local vmhaltcmd=${vm_cmds[$ck]}
+	local vmname="${vbox_names[$ck]}"
+	local vmip=${vbox_ips[$ck]}
+	local vmhaltcmd=${halt_cmds[$ck]}
+	# default to halt -p
+	if [ -z "$vmhaltcmd" ]; then
+		vmhaltcmd="halt -p"
+	fi
 	local deadline=$(date -d 2mins +%s)
 	VBoxManage list runningvms|grep -q "${vmname}" || {
 		echo "${vmname} VM is already stopped. Nothing done."
@@ -312,12 +348,11 @@ build_prepare () {
 	local ck="$1"
 	shift 1
 	local workdir="${workdir_base}/${resultbase}/${ck}"
-	case "$ck" in
-		openbsd | \
-		netbsd | \
-		dragonflybsd)
+	
+	case "$build_type" in
+		vbox)
 			start_vbox_vm "$ck" || return 1
-			tar czf - -C "${flashrom_source}" --format=ustar . | ssh compiler@${vm_ips[$ck]} "mkdir -p ~/buildbot/${resultbase}; cd ~/buildbot/${resultbase}; tar xzf -"
+			tar czf - -C "${flashrom_source}" --format=ustar . | ssh ${vm_user}@${vbox_ips[$ck]} "mkdir -p ${vm_workdir}/${resultbase}; cd ${vm_workdir}/${resultbase}; tar xzf -"
 			;;
 		*)
 			mkdir -p "${workdir}" && cp -a "${flashrom_source}/." "${workdir}"
@@ -329,11 +364,9 @@ build_execute () {
 	local ck="$1"
 	shift 1
 	local workdir="${workdir_base}/${resultbase}/${ck}"
-	case "$ck" in
-		openbsd | \
-		netbsd | \
-		dragonflybsd)
-			ssh compiler@${vm_ips[$ck]} "cd ~/buildbot/${resultbase} && $@"
+	case "$build_type" in
+		vbox)
+			ssh ${vm_user}@${vbox_ips[$ck]} "cd ${vm_workdir}/${resultbase} && $@"
 			;;
 		*)
 			cd "${workdir}" && "$@"
@@ -347,11 +380,9 @@ build_fetch () {
 	shift 2
 	local workdir="${workdir_base}/${resultbase}/${ck}"
 	for file in "$@"; do
-		case "$ck" in
-			openbsd | \
-			netbsd | \
-			dragonflybsd)
-				scp -p "compiler@${vm_ips[$ck]}:\"buildbot/${resultbase}/${file}\"" "$dest/"
+		case "$build_type" in
+			vbox)
+				scp -p "${vm_user}@${vbox_ips[$ck]}:\"${vm_workdir}/${resultbase}/${file}\"" "$dest/"
 				;;
 			*)
 				cp -a -t "$dest" "${workdir}/${file}"
@@ -363,16 +394,41 @@ build_fetch () {
 build_destroy () {
 	local ck="$1"
 	shift 1
-	local workdir="${workdir_base}/${resultbase}/${ck}"
-	case "$ck" in
-		openbsd | \
-		netbsd | \
-		dragonflybsd)
-			test "$cleanup" -eq 1 && ssh compiler@${vm_ips[$ck]} "rm -rf ~/buildbot/${resultbase}"
+	case "$build_type" in
+		vbox)
+			test "$cleanup" -eq 1 && ssh ${vm_user}@${vbox_ips[$ck]} "rm -rf ${vm_workdir}/${resultbase}"
 			stop_vbox_vm "$ck"
 			;;
 		*)
-			test "$cleanup" -eq 1 && rm -rf "${workdir}"
+			test "$cleanup" -eq 1 && rm -rf "${workdir_base}/${resultbase}/${ck}"
+			return 0
+			;;
+	esac
+}
+
+# set variable build_type to
+#	- vbox if the compiler is hosted in a virtual box vm
+#	- host if we can compile on the host machine (possibly with a cross compiler)
+get_build_type () {
+	if is_key_in "$1" "$(declare -p vbox_names)" ; then
+		build_type="vbox"
+	else
+		build_type="host"
+	fi
+}
+
+get_make_cmd () {
+	local ck=$1
+	case "$build_type" in
+		vbox)
+			if ssh ${vm_user}@${vbox_ips[$ck]} "command -v gmake >/dev/null 2>&1" ; then
+				make_cmd=gmake
+			else
+				make_cmd=make
+			fi
+			;;
+		*)
+			make_cmd=make
 			return 0
 			;;
 	esac
@@ -385,22 +441,37 @@ build_it () {
 	echo "Starting $ck ($cc) build of ${flashrom_source}"
 	if [ "$dryrun" -ne 1 ]; then
 		local outdir="$resultdir/$ck"
+		if is_key_in "$ck" "$(declare -p lib_dirs)" ; then
+			local lib_option=LIBS_BASE=${libs_base}/${lib_dirs[${ck}]}
+		fi
+		get_build_type "$ck"
+		get_make_cmd "$ck"
 		mkdir "$outdir" || cur_err=1
 		[ "$cur_err" -ne 1 ] && { build_prepare "$ck" || cur_err=1; }
-		[ "$cur_err" -ne 1 ] && { build_execute "$ck" gmake CC="$cc" ${flashrom_opts[@]} 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1; }
+		[ "$cur_err" -ne 1 ] && { build_execute "$ck" "$make_cmd" CC="$cc" ${lib_option} ${flashrom_opts[@]} 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1; }
 		[ "$cur_err" -ne 1 ] && build_fetch   "$ck" "$outdir/" flashrom.8 flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe 2>/dev/null
-		[ "$cur_err" -ne 1 ] && [ "$cleanup" -eq 1 ] && { build_execute "$ck" gmake distclean 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1; }
+		[ "$cur_err" -ne 1 ] && [ "$cleanup" -eq 1 ] && { build_execute "$ck" "$make_cmd" distclean 2>&1 | tee -a "$outdir/buildlog.txt" ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1; }
 		build_destroy "$ck" || cur_err=1 # unconditionally clean up
 	fi
 	return $cur_err
 }
 
+
 main () {
 	local errors=0
 	local error_builds=()
 	local -A cc_pids=()
-	# clean up first
-	test "$dryrun" -eq 1 || gmake -C "${flashrom_source}" ${flashrom_opts[@]} distclean 2>&1
+	local make_cmd
+	get_make_cmd "make_cmd"
+
+	#############################################
+	# clean up first the local source directory #
+	#############################################
+	test "$dryrun" -eq 1 || "$make_cmd" -C "${flashrom_source}" ${flashrom_opts[@]} distclean 2>&1
+
+	##########################################
+	# then schedule compile runs in parallel #
+	##########################################
 	for ck in "${!compilers[@]}"; do
 		while [ $(jobs 2>&1 | grep -c Running) -ge "$j" ]; do
 			sleep 1
@@ -409,6 +480,9 @@ main () {
 		cc_pids+=(["$ck"]="$!")
 	done
 
+	######################################
+	# then wait for all jobs to complete #
+	######################################
 	for ck in "${!compilers[@]}"; do
 		pid=${cc_pids[$ck]}
 		local cur_err=0
@@ -426,6 +500,9 @@ main () {
 		fi
 	done
 
+	#################################
+	# cleanup and result processing #
+	#################################
 	echo "Done (${errors} errors)!"
 	echo >>"${results_file}"
 	echo "${errors} errors" >>"${results_file}"

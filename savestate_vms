@@ -1,8 +1,6 @@
 #! /bin/bash
 
-declare -A vm_names=([netbsd]=NetBSD-6.1-amd64
-		     [openbsd]=OpenBSD-i386
-		     [dragonflybsd]=DragonFlyBSD-3.4.2-amd64)
+. buildbot.conf
 
 save_vm () {
 	local vmname="$1"
@@ -18,7 +16,7 @@ save_vm () {
 	fi
 }
 
-for vmname in ${vm_names[@]} ; do
+for vmname in ${vbox_names[@]} ; do
 	save_vm ${vmname} &
 done
 wait
