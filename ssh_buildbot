@@ -1,0 +1,16 @@
+#!/bin/bash
+
+. buildbot.conf
+. common.sh
+
+fill_vbox_ips
+
+ssh_vbox_vm () {
+	local ck=$1
+	[ -n "$2" ] && local vm_user="$2@"
+	local vmip=${vbox_ips[$ck]}
+	[ -n "$vmip" ] || { echo "Could not find respective host name" >&2 ; return 1; }
+	ssh ${vm_user}${vbox_ips[$ck]} "$3"
+}
+
+ssh_vbox_vm $@

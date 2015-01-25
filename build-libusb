@@ -1,0 +1,49 @@
+#!/bin/bash -e
+
+dest_prefix=/home/flashrom/cross-libs
+libusb_src=/home/flashrom/download/libs/libusb
+libusb_compat_src=/home/flashrom/download/libs/libusb-compat-0.1
+
+#. buildbot.conf
+
+old=`pwd`
+
+buildarch=`gcc -dumpmachine 2>/dev/null`
+if [ -z "$buildarch" ]; then
+	eval `dpkg-architecture`
+	if [ -z $DEB_HOST_GNU_TYPE ]; then
+		printf "Could not determine host architecture\n\n"
+		exit 1
+	fi
+	buildarch="$DEB_HOST_GNU_TYPE"
+fi
+
+# NB: Windows is special. To build libusb-win32 from source one needs a windows machine and sdk...
+for triplet in mips-linux-gnu sparc-linux-gnu powerpc-linux-gnu powerpc64le-linux-gnu arm-linux-gnueabihf aarch64-linux-gnu i386-linux-gnu; do
+	printf $triplet
+
+	if [ -e ${dest_prefix}/${triplet}/lib/libusb-1.0.a -a -e ${dest_prefix}/${triplet}/lib/libusb.la ] ; then
+		echo " exists already, skipping."
+		continue
+	fi
+	# libusb first
+	cd ${libusb_src}
+	if [ -e Makefile ]; then
+		make distclean >/dev/null 2>&1
+	fi
+	./autogen.sh --disable-debug-log --host=${triplet} --build="$buildarch" --prefix=${dest_prefix}/${triplet}/ >/dev/null 2>&1
+	make install >/dev/null 2>&1
+
+	# libusb-compat afterwards
+	cd ${libusb_compat_src}
+	if [ -e Makefile ]; then
+		make distclean >/dev/null 2>&1
+	fi
+	PKG_CONFIG_PATH=${dest_prefix}/${triplet}/lib/pkgconfig ./autogen.sh --disable-debug-log --host=${triplet} --build="$buildarch" --prefix=${dest_prefix}/${triplet} >/dev/null 2>&1
+	make install >/dev/null 2>&1
+	printf " successfully installed.\n"
+done
+
+cd "$old"
+
+

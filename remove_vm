@@ -18,5 +18,6 @@ fi
 
 VBoxManage unregistervm "$vmname" --delete
 
-VBoxManage dhcpserver remove --ifname vboxnet1
-VBoxManage hostonlyif remove vboxnet1
+#FIXME
+#VBoxManage dhcpserver remove --ifname vboxnet1
+#VBoxManage hostonlyif remove vboxnet1

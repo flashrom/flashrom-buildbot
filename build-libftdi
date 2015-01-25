@@ -1,0 +1,43 @@
+#!/bin/bash -e
+
+dest_prefix=/home/flashrom/cross-libs
+libftdi0_root=/home/flashrom/download/libs/libftdi-0.20
+
+#. buildbot.conf
+
+old=`pwd`
+
+buildarch=`gcc -dumpmachine 2>/dev/null`
+if [ -z "$buildarch" ]; then
+	eval `dpkg-architecture`
+	if [ -z $DEB_HOST_GNU_TYPE ]; then
+		printf "Could not determine host architecture\n\n"
+		exit 1
+	fi
+	buildarch="$DEB_HOST_GNU_TYPE"
+fi
+
+# FIXME: Windows
+for triplet in mips-linux-gnu sparc-linux-gnu powerpc-linux-gnu powerpc64le-linux-gnu arm-linux-gnueabihf aarch64-linux-gnu i386-linux-gnu; do
+	printf $triplet
+
+	if [ -e ${dest_prefix}/${triplet}/lib/libftdi.a ] ; then
+		echo " exists already, skipping."
+		continue
+	fi
+
+	cd ${libftdi0_root}
+	if [ -e Makefile ]; then
+		make distclean >/dev/null 2>&1
+	fi
+
+	export PKG_CONFIG_LIBDIR=${dest_prefix}/${triplet}/lib/pkgconfig
+	./configure --host=${triplet} --build="$buildarch" --prefix=${dest_prefix}/${triplet}/ --exec-prefix=${dest_prefix}/${triplet}/ --without-examples >/dev/null 2>&1
+	make install >/dev/null 2>&1
+
+	printf " successfully installed.\n"
+done
+
+cd "$old"
+
+

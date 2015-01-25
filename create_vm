@@ -8,7 +8,7 @@
 #dryrun="echo"
 
 usage () {
-	echo "$0 <vmname> <iso> [<ostype>, <memory>]"
+	echo "$0 <vmname> <iso> [<ostype> [<memory>]]"
 	exit 1
 }
 
@@ -19,13 +19,13 @@ fi
 vmname=$1
 isoname=$2
 if [ $# -eq 3 ]; then
-	ostype=--ostype $3
+	ostype="--ostype $3"
 fi
 
 if [ $# -eq 4 ]; then
 	mem=$4
 else
-	mem=512
+	mem=256
 fi
 
 if [ ! -r "$isoname" ]; then
@@ -57,9 +57,9 @@ $dryrun VBoxHeadless --startvm "$vmname" >/dev/null &
 $dryrun printf "Now install the OS enter press enter when done with setting up the machine...\n"
 $dryrun read ignored
 
-$dryrun printf "Installing ssh pub key on root@10.0."$ifcnt".2\n"
-$dryrun ssh-copy-id -i ~/.ssh/id_rsa.pub root@10.0."$ifcnt".2
 $dryrun printf "Installing ssh pub key on flashrom@10.0."$ifcnt".2\n"
 $dryrun ssh-copy-id -i ~/.ssh/id_rsa.pub flashrom@10.0."$ifcnt".2
+$dryrun printf "Installing ssh pub key on root@10.0."$ifcnt".2\n"
+$dryrun ssh-copy-id -i ~/.ssh/id_rsa.pub root@10.0."$ifcnt".2
 
 

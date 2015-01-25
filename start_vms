@@ -1,0 +1,75 @@
+#!/bin/bash
+
+. buildbot.conf
+
+show_help() {
+	echo "Usage:
+${0} [-n] [-p/-np] [-s sourcepath] [-j numthreads] [-nc] [-c compiler]... [flashrom build options]
+
+Options
+    -h or --help
+        Display this message.
+    -n or --dry-run
+        Do not create any directories or files.
+    -p or --private
+        do not make results public
+    -np or --public
+        *do* make results public
+    -s or --source
+        path to flashrom sources to build
+    -c or --compiler
+        adds a compiler to the list of compilers to use (replaces the default list, can be given multiple times)
+    -j or --threads
+        maximum number of concurrent build jobs
+    -nc or --no-cleanup
+        do not cleanup working directories
+
+    Possible compilers are: ${!available_compilers[@]}"
+	exit 1
+}
+
+
+start_vm () {
+	local vmname="$1"
+	if VBoxManage list runningvms|grep -q "${vmname}"; then
+		echo "${vmname} VM is already running. Nothing done."
+		return 0
+	fi
+	VBoxManage startvm "${vmname}" --type headless >/dev/null
+	if [ "$?" -eq 0 ]; then
+		echo "Started ${vmname} VM successfully"
+	else
+		echo "Starting ${vmname} VM failed"
+	fi
+}
+
+vm_names=()
+while [ $# -gt 0 ];
+do
+	case ${1} in
+	-h|--help)
+		show_help;
+		shift;;
+	-*)
+		show_help;
+		msg_err "invalid option: $1"
+		;;
+	*)	# everything else are vm names
+		vm_names+=(" $1")
+		shift;;
+	esac;
+done
+
+if [ "${#vm_names}" -eq 0 ]; then
+	vm_names=${vbox_names[@]}
+fi
+
+main () {
+	echo "Trying to start ${vm_names[@]}."
+	for vmname in ${vm_names[@]} ; do
+		start_vm ${vmname} &
+	done
+	wait
+}
+
+main $@
