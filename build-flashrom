@@ -1,5 +1,7 @@
 #!/bin/bash
-# TODO: Handle tarballs later.
+
+export LC_ALL=C
+export TZ=UTC0
 
 . buildbot.conf
 . common.sh
@@ -36,10 +38,6 @@ Options
 
 #default values
 flashrom_source=.
-vm_user="flashrom"
-vm_workdir="/tmp/buildbot"
-www_root="/home/${vm_user}/public_html/buildbot.flashrom.org"
-libs_base="/home/${vm_user}/cross-libs"
 declare -A compilers=()
 flashrom_opts=()
 priv=-1
@@ -144,10 +142,10 @@ echo
 PATH="${buildbot_dir}:${PATH}"
 unset LANG
 
-if [ ! -r ${www_root}/buildresults/latest-build.txt ]; then
+if [ ! -r ${www_root}/latest-build.txt ]; then
 	lastid=-1
 else
-	lastid=$(sed 's/.*-\(.*\)-.*/\1/' ${www_root}/buildresults/latest-build.txt)
+	lastid=$(sed 's/.*-\(.*\)-.*/\1/' ${www_root}/latest-build.txt)
 fi
 newid=$(printf "%06d" $(expr $lastid + 1))
 
@@ -156,18 +154,19 @@ if [ "$dryrun" -eq 1 ]; then
 	results_file=/dev/null
 else
 	echo "Starting Build #${newid}"
-	mkdir -p "${www_root}/buildresults"
-	resultdir=$(mktemp -d "${www_root}/buildresults/flashrom-${newid}-XXX")
+	mkdir -p "${www_root}"
+	resultdir=$(mktemp -d "${www_root}/flashrom-${newid}-XXX")
 	if [ ! -d "${resultdir}" ]; then
 		msg_err "Could not create temporary directory."
 	fi
 	results_file="${resultdir}/results.txt"
 	resultbase=$(basename "${resultdir}")
-	echo -n "${resultbase}" >"${www_root}/buildresults/latest-build.txt"
-	ln -s -f -T "${resultbase}" "${www_root}/buildresults/latest-build"
+	echo -n "${resultbase}" >"${www_root}/latest-build.txt"
+	ln -s -f -T "${resultbase}" "${www_root}/latest-build"
 	if [ $priv -ne 1 ]; then
-		echo -n "${resultbase}" >"${www_root}/buildresults/latest-public-build.txt"
-		ln -s -f -T "${resultbase}" "${www_root}/buildresults/latest-public-build"
+		chmod go+rx "$resultdir"
+		echo -n "${resultbase}" >"${www_root}/latest-public-build.txt"
+		ln -s -f -T "${resultbase}" "${www_root}/latest-public-build"
 	fi
 	echo "Build was requested in \"${flashrom_source}\"" >>"${results_file}"
 	echo "with arguments \"${flashrom_opts[@]}\" for ${#compilers[@]} compiler configurations:" >>"${results_file}"
@@ -190,11 +189,21 @@ start_vbox_vm () {
 	local vmname=${vbox_names[$ck]}
 	local vmip=${vbox_ips[$ck]}
 
-	deadline=$(date -d 3mins +%s)
+	# set deadline depending on curent VM state:
+	#  - 10 secs if the VM is already running (assuming that it is already pretty much ready)
+	#  - 50 secs if the VM is saved and needs to be resumed
+	#  - 6 mins if the VM needs to boot completely
+	local deadline
 	if VBoxManage list runningvms | grep -q "${vmname}" ; then
 		vms_were_running[$ck]=1
 		echo "${vmname} VM is already running."
+		deadline=$(date -d 10secs +%s)
 	else
+		if [ $(vboxmanage showvminfo "${vmname}" --machinereadable | grep -oP '(?<=State=").*(?=")') == "saved" ]; then
+			deadline=$(date -d 50secs +%s)
+		else
+			deadline=$(date -d 6mins +%s)
+		fi
 		VBoxHeadless --startvm "${vmname}" --vrde off >/dev/null &
 	fi
 
@@ -205,7 +214,7 @@ start_vbox_vm () {
 			return 1
 		fi
 		echo "Waiting for ${vmname} VM to get reachable (for $((${deadline}-$(date +%s))) more secs)..."
-		sleep 5
+		sleep 3
 	done
 	echo "${vmname} VM started and waiting for commands."
 }
@@ -338,7 +347,6 @@ add_make_cmd () {
 		vbox)
 			if ssh ${vm_user}@${vbox_ips[$ck]} "command -v gmake" >/dev/null 2>&1 ; then
 				make_cmds[$ck]=gmake
-				echo "${vbox_names[$ck]} is using gmake"
 			else
 				make_cmds[$ck]=make
 			fi
@@ -357,14 +365,17 @@ build_it () {
 	if [ "$dryrun" -ne 1 ]; then
 		local outdir="$resultdir/$ck"
 		mkdir "$outdir" || cur_err=1
-		[ "$cur_err" -ne 1 ] && { build_prepare "$ck" || cur_err=1; }
+		[ "$cur_err" -ne 1 ] && { build_prepare "$ck"  >> "$outdir/buildlog.txt" 2>&1 ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1; }
+		[ "$cur_err" -eq 1 ] && return $cur_err
 		add_make_cmd "$ck"
-		local exec_args=("$ck" "${make_cmds[$ck]}" CC="$cc")
-		if is_key_in "$ck" "$(declare -p lib_dirs)" ; then
-			exec_args+=("LIBS_BASE=${libs_base}/${lib_dirs[${ck}]}")
-		fi
 
+		local exec_args=("$ck" "${make_cmds[$ck]}" CC="$cc")
 		printf "Executing for %s: %q %q" "$ck" "${make_cmds[$ck]}" CC="$cc" | tee -a "$outdir/buildlog.txt"
+		if is_key_in "$ck" "$(declare -p lib_dirs)" ; then
+			local libs_base="LIBS_BASE=${libs_base}/${lib_dirs[${ck}]}"
+			exec_args+=("$libs_base")
+			printf " $libs_base" | tee -a "$outdir/buildlog.txt"
+		fi
 		[ -z "${lib_option}" ] || printf " %q" "${lib_option}" | tee -a "$outdir/buildlog.txt"
 		for opt in "${flashrom_opts[@]}" ; do
 			printf " " | tee -a "$outdir/buildlog.txt"
@@ -402,12 +413,14 @@ main () {
 	local error_builds=()
 	local -A cc_pids=()
 
+	startdate=$(($(date +'%s * 1000 + %-N / 1000000')))
+
 	################################################
 	# prepare local source and working directories #
 	################################################
 	test "$dryrun" -eq 1 || "make" -C "${flashrom_source}" ${flashrom_opts[@]} distclean >/dev/null 2>&1
 	mkdir -p "${workdir_base}/${resultbase}" >/dev/null 2>&1
-	tar czf "${workdir_base}/${resultbase}/source.tgz" -C "${flashrom_source}" --format=ustar . >/dev/null 2>&1
+	tar czf "${workdir_base}/${resultbase}/source.tgz" -C "${flashrom_source}" --exclude-vcs --format=ustar . >/dev/null 2>&1
 
 	####################################
 	# prepare some local map variables #
@@ -445,11 +458,14 @@ main () {
 		fi
 	done
 
+	enddate=$(($(date +'%s * 1000 + %-N / 1000000')))
+
 	#################################
 	# cleanup and result processing #
 	#################################
-	echo "Done (${errors} errors)!"
-	echo "${errors} error(s)" >>"${results_file}"
+	datediff=$(echo "($enddate - $startdate) / 1000" | bc -l)
+	printf 'Done in %.3f seconds (%d errors)!\n' "$datediff" "$errors"
+	printf '%d error(s) in %.3f seconds\n' "$errors" "$datediff" >>"${results_file}"
 	if [ $errors -ne 0 ]; then
 		echo "The following builds failed:" | tee -a "${results_file}"
 		local fails=$(echo "${error_builds[@]}" | tr " " "\n" | sort | tr "\n" " ")
@@ -460,7 +476,6 @@ main () {
 	test "$dryrun" -eq 1 || echo "Results in ${resultdir}"
 	test "$dryrun" -eq 1 || mv "${workdir_base}/${resultbase}/source.tgz" "${resultdir}"
 	test "$dryrun" -eq 1 || rmdir "${workdir_base}/${resultbase}/" 2>/dev/null # not created for VM-only builds
-	test "$priv" -eq 1 -o "$dryrun" -eq 1 || chmod go+rx "$resultdir"
 	exit $errors
 }
 

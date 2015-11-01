@@ -37,6 +37,7 @@ hdname=~/VirtualBox\ VMs/$vmname/hdd1.vdi # oh my.
 ctlname="storagectl1"
 #ifcnt=`expr $(VBoxManage list hostonlyifs | grep GUID: | wc -l) + 1`
 ifcnt=$(VBoxManage list hostonlyifs | grep GUID: | wc -l)
+port=$((5000+${ifcnt}))
 #hostonlyif="vboxnet$ifcnt"
 
 $dryrun VBoxManage createvm --name "$vmname" --register ${ostype} >/dev/null
@@ -45,7 +46,7 @@ $dryrun VBoxManage createhd --filename "$hdname" --size 10240 >/dev/null
 $dryrun VBoxManage storageattach "$vmname" --storagectl "$ctlname" --port 0 --device 0 --type hdd --medium "$hdname" >/dev/null
 $dryrun VBoxManage storageattach "$vmname" --storagectl "$ctlname" --port 0 --device 1 --type dvddrive --medium "$isoname" >/dev/null
 $dryrun VBoxManage modifyvm "$vmname" --memory "$mem" --boot1 disk --boot2 dvd >/dev/null
-$dryrun VBoxManage modifyvm "$vmname" --vrdeport 500${ifcnt} --vrde on --vrdeauthtype external --vrdeaddress 127.0.0.1 >/dev/null
+$dryrun VBoxManage modifyvm "$vmname" --vrdeport ${port} --vrde on --vrdeauthtype external --vrdeaddress 127.0.0.1 >/dev/null
 $dryrun VBoxManage modifyvm "$vmname" --nic1 nat --nictype1 82540EM --natnet1 "192.168.$ifcnt.0/24" >/dev/null
 hostonlyif=$($dryrun VBoxManage hostonlyif create | sed -e "s/.*'\(.*\)'.*/\1/g")
 $dryrun VBoxManage hostonlyif ipconfig "$hostonlyif" --ip 10.0."$ifcnt".1 >/dev/null
@@ -54,6 +55,7 @@ $dryrun VBoxManage dhcpserver add --ifname "$hostonlyif" --enable --ip 10.0."$if
 
 $dryrun VBoxHeadless --startvm "$vmname" >/dev/null &
 
+$dryrun printf "VM $vmname coming up on port ${port}...\n"
 $dryrun printf "Now install the OS enter press enter when done with setting up the machine...\n"
 $dryrun read ignored
 

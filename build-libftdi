@@ -1,11 +1,11 @@
 #!/bin/bash -e
 
-dest_prefix=/home/flashrom/cross-libs
-libftdi0_root=/home/flashrom/download/libs/libftdi-0.20
+. buildbot.conf
 
-#. buildbot.conf
+libftdi0_root=$(realpath ../libs/libftdi-0.20)
 
 old=`pwd`
+cd ${libftdi0_root}
 
 buildarch=`gcc -dumpmachine 2>/dev/null`
 if [ -z "$buildarch" ]; then
@@ -18,26 +18,24 @@ if [ -z "$buildarch" ]; then
 fi
 
 # FIXME: Windows
-for triplet in mips-linux-gnu sparc-linux-gnu powerpc-linux-gnu powerpc64le-linux-gnu arm-linux-gnueabihf aarch64-linux-gnu i386-linux-gnu; do
+# FIXME: x86_64-linux-gnux32
+for triplet in x86_64-unknown-linux-uclibc x86_64-unknown-linux-musl mips-unknown-linux-gnu sparc-unknown-linux-gnu powerpc-linux-gnu powerpc64le-linux-gnu arm-linux-gnueabihf aarch64-linux-gnu i386-linux-gnu; do
 	printf $triplet
 
-	if [ -e ${dest_prefix}/${triplet}/lib/libftdi.a ] ; then
+	if [ -e ${libs_base}/${triplet}/lib/libftdi.a ] ; then
 		echo " exists already, skipping."
 		continue
 	fi
 
-	cd ${libftdi0_root}
 	if [ -e Makefile ]; then
-		make distclean >/dev/null 2>&1
+		make distclean
 	fi
 
-	export PKG_CONFIG_LIBDIR=${dest_prefix}/${triplet}/lib/pkgconfig
-	./configure --host=${triplet} --build="$buildarch" --prefix=${dest_prefix}/${triplet}/ --exec-prefix=${dest_prefix}/${triplet}/ --without-examples >/dev/null 2>&1
-	make install >/dev/null 2>&1
+	export PKG_CONFIG_LIBDIR=${libs_base}/${triplet}/lib/pkgconfig
+	./configure --host=${triplet} --build="$buildarch" --prefix=${libs_base}/${triplet}/ --exec-prefix=${libs_base}/${triplet}/ --without-examples
+	make install
 
 	printf " successfully installed.\n"
 done
 
 cd "$old"
-
-

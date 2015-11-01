@@ -1,4 +1,6 @@
-#!/bin/sh -e
+#!/bin/bash -e
+
+#dryrun="echo"
 
 usage () {
 	echo "$0 <vmname>"
@@ -9,15 +11,40 @@ if [ $# -ne 1 ]; then
 	usage
 fi
 
+. buildbot.conf
+. common.sh
+
 vmname=$1
 
-if VBoxManage list runningvms|grep -q "${vmname}"; then
-	VBoxManage controlvm "$vmname" poweroff
+fill_vbox_ips
+
+unset compiler
+for ck in "${!available_compilers[@]}"; do
+	curvmname=${vbox_names[$ck]}
+	[ -z "$curvmname" ] && continue
+	[ "$curvmname" != "$vmname" ] && continue
+	if ! vboxmanage showvminfo "${vmname}" >/dev/null; then
+		msg_err "There is apparently no VM named $vmname."
+	fi
+	compiler=$ck
+done
+
+if [ -z "$compiler" ]; then
+	msg_err "Could not find compiler name of VM $vmname".
 fi
 
+echo "Compiler $compiler matches VM $vmname."
 
-VBoxManage unregistervm "$vmname" --delete
+if VBoxManage list runningvms|grep -q "${vmname}"; then
+	$dryrun VBoxManage controlvm "$vmname" poweroff
+fi
 
-#FIXME
-#VBoxManage dhcpserver remove --ifname vboxnet1
-#VBoxManage hostonlyif remove vboxnet1
+$dryrun VBoxManage unregistervm "$vmname" --delete
+
+if [ -z "${vbox_hostonlyifs[$compiler]}" ]; then
+	echo "No hostonlyif found belonging to VM $vmname"
+else
+	echo "Removing hostonlyif "${vbox_hostonlyifs[$compiler]}" belonging to VM $vmname"
+	$dryrun VBoxManage dhcpserver remove --netname "HostInterfaceNetworking-${vbox_hostonlyifs[$compiler]}"
+	$dryrun VBoxManage hostonlyif remove "${vbox_hostonlyifs[$compiler]}"
+fi

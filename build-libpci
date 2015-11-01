@@ -1,35 +1,24 @@
 #!/bin/bash -e
 
-dest_prefix=/home/flashrom/cross-libs
-lib_src=/home/flashrom/download/libs/pciutils-3.1.5
+. buildbot.conf
 
-#. buildbot.conf
+lib_src=$(realpath ../libs/pciutils)
 
 old=`pwd`
 cd ${lib_src}
 
-for triplet in mips-linux-gnu sparc-linux-gnu powerpc-linux-gnu powerpc64le-linux-gnu arm-linux-gnueabihf aarch64-linux-gnu i386-linux-gnu; do
+for triplet in x86_64-unknown-linux-uclibc x86_64-unknown-linux-musl mips-unknown-linux-gnu sparc-unknown-linux-gnu powerpc-linux-gnu powerpc64le-linux-gnu arm-linux-gnueabihf aarch64-linux-gnu i386-linux-gnu x86_64-linux-gnux32; do
 	prefix=${triplet}-
 	arch=${triplet%-*}
 	echo -n $triplet
-	if [ -e ${dest_prefix}/${triplet}/lib/libpci.a ] ; then
+	if [ -e ${libs_base}/${triplet}/lib/libpci.a ] ; then
 		echo " exists already, skipping."
 		continue
 	fi
-	make distclean 1>/dev/null 2>&1
-	make HOST=${arch} CROSS_COMPILE=${prefix} PREFIX= DESTDIR=${dest_prefix}/${triplet} ZLIB=no DNS=no install install-lib  1>/dev/null 2>&1
+	echo
+	make distclean
+	make STRIP="-s --strip-program=${triplet}-strip" HOST=${arch} CROSS_COMPILE=${prefix} PREFIX= DESTDIR=${libs_base}/${triplet} ZLIB=no DNS=no all install-lib
 	echo " successfully installed."
 done
 
 cd "$old"
-
-#cat << EOF > ~/local/share/config.site
-#CPPFLAGS=-I$HOME/local/include
-#LDFLAGS=-L$HOME/local/lib
-#...
-#EOF
-
-#./autogen.sh --disable-debug-log --host=i386-linux-gnu --prefix=/home/flashrom/cross-libs/i386-linux
-
-# libusb-compat-0.1
-# PKG_CONFIG_PATH=/home/flashrom/cross-libs/i386-linux/lib/pkgconfig ./autogen.sh --disable-debug-log --host=i386-linux-gnu --prefix=/home/flashrom/cross-libs/i386-linux

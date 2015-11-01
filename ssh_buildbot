@@ -1,12 +1,19 @@
 #!/bin/bash
 
+if [ $# -lt 1 -o "$1" = "-h" -o "$1" = "--help" ]; then
+	echo "$0 <vm name> [user name [command]] "
+	exit 1
+fi
+
 . buildbot.conf
 . common.sh
 
 fill_vbox_ips
 
 ssh_vbox_vm () {
-	local ck=$1
+	local ck
+	get_ck_from_vmname "$1" "ck"
+	[ -z "$ck" ] && msg_err "Could not find compiler key for VM $1"
 	[ -n "$2" ] && local vm_user="$2@"
 	local vmip=${vbox_ips[$ck]}
 	[ -n "$vmip" ] || { echo "Could not find respective host name" >&2 ; return 1; }

@@ -11,18 +11,23 @@ check_arg () {
 
 # stores a mapping of vbox VM names and their IP addresses
 declare -A vbox_ips
+declare -A vbox_hostonlyifs
 
 fill_vbox_ips() {
 	for ck in "${!available_compilers[@]}"; do
 		local vmname=${vbox_names[$ck]}
-		[ -z $vmname ] && continue
-		local hostonlyif=$(vboxmanage showvminfo ${vmname} --machinereadable | grep -oP '(?<=hostonlyadapter2=")[^"]+')
-		local vmip=$(VBoxManage list hostonlyifs | grep -ozP "(?s)Name: +${hostonlyif}.*?IPAddress:\N*" | grep -ozP "(?<=IPAddress:       )[0-9.]+")
+		[ -z "$vmname" ] && continue
+		if ! vminfo=$(vboxmanage showvminfo "${vmname}" --machinereadable) 2>/dev/null; then
+			msg_err "There is no VM named $vmname registered on this system."
+		fi
+		local hostonlyif=$(echo "$vminfo" | grep -oP '(?<=hostonlyadapter2=")[^"]+')
+		local vmip=$(VBoxManage list hostonlyifs | grep -ozP "(?s)Name: +${hostonlyif}\s.*?IPAddress:\N*" | grep -ozP "(?<=IPAddress:       )[0-9.]+")
 		vmip=${vmip%.1}.2
 		if ! valid_ip "$vmip" ; then
-			msg_err "Could not retrieve IP for $ck correctly (got $vmip)"
+			msg_err "Could not retrieve IP for $ck correctly (got $vmip)."
 		fi
 		vbox_ips["$ck"]=$vmip
+		vbox_hostonlyifs["$ck"]=$hostonlyif
 	done
 }
 
@@ -76,4 +81,12 @@ get_key_from_name () {
 		fi
 	done
 	return 1
+}
+
+# get the compiler name from the vm name
+#invocation example: get_ck_from_vmname debian-8-amd64 vmname
+get_ck_from_vmname () {
+	vmname="$1"
+	var_name="$2"
+	get_key_from_name "$vmname" "$(declare -p vbox_names)" "$var_name"
 }
