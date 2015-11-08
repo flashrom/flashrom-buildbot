@@ -12,9 +12,10 @@ fill_vbox_ips
 
 ssh_vbox_vm () {
 	local ck
+	local vm_user
 	get_ck_from_vmname "$1" "ck"
 	[ -z "$ck" ] && msg_err "Could not find compiler key for VM $1"
-	[ -n "$2" ] && local vm_user="$2@"
+	[ -n "$2" ] && vm_user="$2@"
 	local vmip=${vbox_ips[$ck]}
 	[ -n "$vmip" ] || { echo "Could not find respective host name" >&2 ; return 1; }
 	ssh ${vm_user}${vbox_ips[$ck]} "$3"
