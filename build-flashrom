@@ -48,6 +48,7 @@ j=2 # default threads
 
 # constants
 workdir_base="/tmp"
+build_details_file="build_details.txt"
 
 while [ $# -gt 0 ];
 do
@@ -319,6 +320,7 @@ build_fetch () {
 				;;
 		esac
 	done
+	return 0 # FIXME: ?
 }
 
 build_destroy () {
@@ -384,7 +386,7 @@ build_it () {
 		done
 		printf "\n" | tee -a "$outdir/buildlog.txt"
 		[ "$cur_err" -ne 1 ] && { build_execute "${exec_args[@]}" >> "$outdir/buildlog.txt" 2>&1 ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1; }
-		[ "$cur_err" -ne 1 ] && build_fetch "$ck" "$outdir/" flashrom.8 flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe  >> "$outdir/buildlog.txt" 2>/dev/null
+		build_fetch "$ck" "$outdir/" "${build_details_file}" flashrom.8 flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe >> "$outdir/buildlog.txt" 2>/dev/null
 		[ "$cur_err" -ne 1 ] && [ "$cleanup" -eq 1 ] && { build_execute "$ck" "${make_cmds[$ck]}" distclean >> "$outdir/buildlog.txt" 2>&1 ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1; }
 		build_destroy "$ck" || cur_err=1 # unconditionally clean up
 	fi
