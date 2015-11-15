@@ -49,6 +49,7 @@ j=2 # default threads
 # constants
 workdir_base="/tmp"
 build_details_file="build_details.txt"
+results_file="results.html"
 
 while [ $# -gt 0 ];
 do
@@ -152,7 +153,7 @@ newid=$(printf "%06d" $(expr $lastid + 1))
 
 if [ "$dryrun" -eq 1 ]; then
 	echo "Simulating Build #${newid}"
-	results_file=/dev/null
+	results_path=/dev/null
 else
 	echo "Starting Build #${newid}"
 	mkdir -p "${www_root}"
@@ -160,7 +161,7 @@ else
 	if [ ! -d "${resultdir}" ]; then
 		msg_err "Could not create temporary directory."
 	fi
-	results_file="${resultdir}/results.txt"
+	results_path="${resultdir}/${results_file}"
 	resultbase=$(basename "${resultdir}")
 	echo -n "${resultbase}" >"${www_root}/latest-build.txt"
 	ln -s -f -T "${resultbase}" "${www_root}/latest-build"
@@ -169,12 +170,12 @@ else
 		echo -n "${resultbase}" >"${www_root}/latest-public-build.txt"
 		ln -s -f -T "${resultbase}" "${www_root}/latest-public-build"
 	fi
-	echo "Build was requested in \"${flashrom_source}\"" >>"${results_file}"
-	echo "with arguments \"${flashrom_opts[@]}\" for ${#compilers[@]} compiler configurations:" >>"${results_file}"
+	echo "<pre>Build was requested in \"${flashrom_source}\"" >>"${results_path}"
+	echo "with arguments \"${flashrom_opts[@]}\" for ${#compilers[@]} compiler configurations:" >>"${results_path}"
 	for ck in $(echo "${!compilers[@]}" | tr " " "\n" | sort | tr "\n" " "); do
-		echo " - ${ck}" >>"${results_file}"
+		echo " - ${ck}" >>"${results_path}"
 	done
-	echo >>"${results_file}"
+	echo >>"${results_path}"
 fi
 
 # Parameter parsing and verification done.
@@ -467,12 +468,12 @@ main () {
 	#################################
 	datediff=$(echo "($enddate - $startdate) / 1000" | bc -l)
 	printf 'Done in %.3f seconds (%d errors)!\n' "$datediff" "$errors"
-	printf '%d error(s) in %.3f seconds\n' "$errors" "$datediff" >>"${results_file}"
+	printf '%d error(s) in %.3f seconds</pre>\n' "$errors" "$datediff" >>"${results_path}"
 	if [ $errors -ne 0 ]; then
-		echo "The following builds failed:" | tee -a "${results_file}"
+		echo "The following builds failed:</br>" | tee -a "${results_path}"
 		local fails=$(echo "${error_builds[@]}" | tr " " "\n" | sort | tr "\n" " ")
 		for ck in $fails; do
-			echo "$ck (${compilers[$ck]})" | tee -a "${results_file}"
+			echo "<a href=$ck/buildlog.txt>$ck (${compilers[$ck]})</a>&nbsp;<a href=$ck/${build_details_file}>Build Details</a></br>" | tee -a "${results_path}"
 		done
 	fi
 	test "$dryrun" -eq 1 || echo "Results in ${resultdir}"
