@@ -17,12 +17,16 @@ if [ -z "$buildarch" ]; then
 	buildarch="$DEB_HOST_GNU_TYPE"
 fi
 
-for triplet in i686-w64-mingw32 x86_64-w64-mingw32 x86_64-unknown-linux-uclibc x86_64-unknown-linux-musl mips-unknown-linux-gnu sparc-unknown-linux-gnu powerpc-linux-gnu powerpc64le-linux-gnu arm-linux-gnueabihf aarch64-linux-gnu i386-linux-gnu; do
+for triplet in x86_64-linux-android i686-w64-mingw32 x86_64-w64-mingw32 x86_64-unknown-linux-uclibc x86_64-unknown-linux-musl mips-unknown-linux-gnu sparc-unknown-linux-gnu powerpc-linux-gnu powerpc64le-linux-gnu arm-linux-gnueabihf aarch64-linux-gnu i386-linux-gnu; do
 	printf $triplet
 
-	if [ -e ${libs_base}/${triplet}/lib/libusb-1.0.a -a -e ${libs_base}/${triplet}/lib/libusb.la ] ; then
+	if [ -s ${libs_base}/${triplet}/lib/libusb-1.0.a -a -s ${libs_base}/${triplet}/lib/libusb.la ] ; then
 		echo " exists already, skipping."
 		continue
+	fi
+	if [ $triplet = "x86_64-linux-android" ]; then
+		# no udev support in android
+		autogen_opts+=--disable-udev
 	fi
 #	FIXME: not all x32 libs are working yet... dunno which ones
 #	if [ $triplet = "x86_64-linux-gnux32" ]; then
@@ -33,7 +37,7 @@ for triplet in i686-w64-mingw32 x86_64-w64-mingw32 x86_64-unknown-linux-uclibc x
 	if [ -e Makefile ]; then
 		make distclean
 	fi
-	./autogen.sh --disable-debug-log --host=${triplet} --build="$buildarch" --prefix=${libs_base}/${triplet}/
+	./autogen.sh $autogen_opts --disable-debug-log --host=${triplet} --build="$buildarch" --prefix=${libs_base}/${triplet}/
 	make install
 
 	# libusb-compat afterwards

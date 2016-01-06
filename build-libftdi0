@@ -18,7 +18,7 @@ if [ -z "$buildarch" ]; then
 fi
 
 # FIXME: x86_64-linux-gnux32
-for triplet in i686-w64-mingw32 x86_64-w64-mingw32 x86_64-unknown-linux-uclibc x86_64-unknown-linux-musl mips-unknown-linux-gnu sparc-unknown-linux-gnu powerpc-linux-gnu powerpc64le-linux-gnu arm-linux-gnueabihf aarch64-linux-gnu i386-linux-gnu; do
+for triplet in x86_64-linux-android i686-w64-mingw32 x86_64-w64-mingw32 x86_64-unknown-linux-uclibc x86_64-unknown-linux-musl mips-unknown-linux-gnu sparc-unknown-linux-gnu powerpc-linux-gnu powerpc64le-linux-gnu arm-linux-gnueabihf aarch64-linux-gnu i386-linux-gnu; do
 	printf $triplet
 
 	if [ -e ${libs_base}/${triplet}/lib/libftdi.a ] ; then
