@@ -1,6 +1,12 @@
 #!/bin/bash
 
 . buildbot.conf
+. common.sh
+. vmcmd_helpers.sh
+
+validate_vmcmd_args "$@"
+echo "Trying to savestate ${vmcmd_vmnames[@]}."
+fill_vbox_arrs
 
 save_vm () {
 	local vmname="$1"
@@ -16,7 +22,7 @@ save_vm () {
 	fi
 }
 
-for vmname in ${vbox_names[@]} ; do
+for vmname in ${vmcmd_vmnames[@]} ; do
 	save_vm ${vmname} &
 done
 wait

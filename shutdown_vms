@@ -5,10 +5,10 @@
 . vmcmd_helpers.sh
 
 validate_vmcmd_args "$@"
-echo "Trying to start ${vmcmd_vmnames[@]}."
+echo "Trying to shutdown ${vmcmd_vmnames[@]}."
 fill_vbox_arrs
 
 for vmname in ${vmcmd_vmnames[@]} ; do
-	start_vbox_vm ${vmname} &
+	shutdown_vm ${vmname}
 done
 wait

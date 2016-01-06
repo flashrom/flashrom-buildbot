@@ -1,3 +1,6 @@
+export LC_ALL=C
+export TZ=UTC0
+
 msg_err () {
 	echo "$@. Aborting." >&2
 	exit 1
@@ -13,11 +16,15 @@ check_arg () {
 	fi
 }
 
+# To distinguish VMs we started (in start_vbox_vm()) remember the VMs that were already running before starting them
+declare -A vms_were_running
+
 # stores a mapping of vbox VM names and their IP addresses
 declare -A vbox_ips
 declare -A vbox_hostonlyifs
+declare -A name_vboxes
 
-fill_vbox_ips() {
+fill_vbox_arrs() {
 	for ck in "${!available_compilers[@]}"; do
 		local vmname=${vbox_names[$ck]}
 		[ -z "$vmname" ] && continue
@@ -32,6 +39,7 @@ fill_vbox_ips() {
 		fi
 		vbox_ips["$ck"]=$vmip
 		vbox_hostonlyifs["$ck"]=$hostonlyif
+		name_vboxes["$vmname"]="$ck"
 	done
 }
 
@@ -88,9 +96,92 @@ get_key_from_name () {
 }
 
 # get the compiler name from the vm name
-#invocation example: get_ck_from_vmname debian-8-amd64 vmname
+# invocation example: get_ck_from_vmname debian-8-amd64 vmname
 get_ck_from_vmname () {
+	_vmname="$1"
+	_var_name="$2"
+	eval "$_var_name=${name_vboxes[$_vmname]}"
+}
+
+# get the haltcmd_from the vm name
+# invocation example: get_haltcmd_from_vmname debian-8-amd64 haltcmd
+get_haltcmd_from_vmname () {
 	vmname="$1"
 	var_name="$2"
-	get_key_from_name "$vmname" "$(declare -p vbox_names)" "$var_name"
+	local _vmhaltcmd=${halt_cmds[$vmname]}
+	# default to halt -p
+	if [ -z "$_vmhaltcmd" ]; then
+		_vmhaltcmd="halt -p"
+	fi
+	eval "$var_name='$_vmhaltcmd'"
+}
+
+# ssh_vbox_vm <vm name> [ <user name> [<cmd>] ]
+ssh_vbox_vm () {
+	local ck
+	local vm_user
+	get_ck_from_vmname "$1" "ck"
+	[ -z "$ck" ] && msg_err "Could not find compiler key for VM $1"
+	[ -n "$2" ] && vm_user="$2@"
+	local vmip=${vbox_ips[$ck]}
+	[ -n "$vmip" ] || msg_err "Could not find IP for compiler $ck"
+	ssh ${vm_user}${vmip} "$3"
+}
+
+# start_vbox_vm vmname [ck]
+# if vmname is empty use ck to determine the vm
+start_vbox_vm () {
+	local vmname
+	local ck
+	if [ -n "$1" ] ; then
+		vmname="$1"
+		ck=${name_vboxes[$vmname]}
+	else
+		ck="$2"
+		vmname=${vbox_names[$ck]}
+	fi
+	local vmip=${vbox_ips[$ck]}
+
+	# set deadline depending on curent VM state:
+	#  - 10 secs if the VM is already running (assuming that it is already pretty much ready)
+	#  - 50 secs if the VM is saved and needs to be resumed
+	#  - 6 mins if the VM needs to boot completely
+	local deadline
+	if VBoxManage list runningvms | grep -q "${vmname}" ; then
+		vms_were_running[$ck]=1
+		echo "${vmname} VM is already running."
+		deadline=$(date -d 10secs +%s)
+	else
+		if [ $(vboxmanage showvminfo "${vmname}" --machinereadable | grep -oP '(?<=State=").*(?=")') == "saved" ]; then
+			deadline=$(date -d 50secs +%s)
+		else
+			deadline=$(date -d 6mins +%s)
+		fi
+		VBoxHeadless --startvm "${vmname}" --vrde off >/dev/null &
+	fi
+
+	until ssh ${vm_user}@${vmip} true >/dev/null 2>&1; do
+		if [ $(date +%s) -ge ${deadline} ]; then
+			echo "No ssh connection within timeout, aborting"
+			return 1
+		fi
+		echo "Waiting for ${vmname} VM to get reachable (for $((${deadline}-$(date +%s))) more secs)..."
+		sleep 3
+	done
+	echo "${vmname} VM started and waiting for commands."
+}
+
+shutdown_vm () {
+	local vmname="$1"
+	if ! VBoxManage list runningvms | grep -q "${vmname}" ; then
+		echo "VM ${vmname} is not running."
+		continue
+	fi
+
+	local vmhaltcmd
+	get_haltcmd_from_vmname ${vmname} "vmhaltcmd"
+
+	[ -z "${vmhaltcmd}" ] && msg_warn "Could not get halt command for VM ${vmname}"
+	printf "Executing '$vmhaltcmd' on VM '$vmname'...\n"
+	ssh_vbox_vm "${vmname}" root "${vmhaltcmd}"
 }
