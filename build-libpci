@@ -17,7 +17,7 @@ for triplet in x86_64-unknown-linux-uclibc x86_64-unknown-linux-musl mips-unknow
 	fi
 	echo
 	make distclean
-	make STRIP="-s --strip-program=${triplet}-strip" HOST=${arch} CROSS_COMPILE=${prefix} PREFIX= DESTDIR=${libs_base}/${triplet} ZLIB=no DNS=no all install-lib
+	make STRIP="-s --strip-program=${triplet}-strip" HOST=${arch} CROSS_COMPILE=${prefix} PREFIX= DESTDIR=${libs_base}/${triplet} ZLIB=no DNS=no SHARED=yes all install-lib
 	echo " successfully installed."
 done
 
