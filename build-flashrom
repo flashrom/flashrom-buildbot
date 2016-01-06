@@ -38,7 +38,7 @@ priv=-1
 priv_def=0 # default privacy setting
 cleanup=1
 dryrun=0
-j=2 # default threads
+j=7 # default threads
 
 # constants
 workdir_base="/tmp"
