@@ -63,7 +63,7 @@ do
 	-s|--source)
 		check_arg $1 "$2"
 		if [ ! -d "$2" ]; then
-			msg_err "$2 is not a directory."
+			msg_err "$2 is not a directory"
 		fi
 		flashrom_source="$2"
 		shift 2;;
@@ -78,13 +78,13 @@ do
 		shift 2;;
 	-p|--private)
 		if [ "$priv" -eq 0 ]; then
-			msg_err "-p and -np are mutial exclusive."
+			msg_err "-p and -np are mutial exclusive"
 		fi
 		priv=1
 		shift;;
 	-np|--public)
 		if [ "$priv" -eq 1 ]; then
-			msg_err "-p and -np are mutial exclusive."
+			msg_err "-p and -np are mutial exclusive"
 		fi
 		priv=0
 		shift;;
@@ -94,7 +94,7 @@ do
 	-j|--threads)
 		check_arg $1 "$2"
 		if [ "$2" -lt 1 ]; then
-			msg_err "Less than 1 concurrent process is a bad idea. $2 requested."
+			msg_err "Less than 1 concurrent process is a bad idea. $2 requested"
 		fi
 		j="$2"
 		shift 2;;
@@ -113,7 +113,7 @@ if [ "$priv" -eq -1 ]; then
 fi
 
 if [ ! -d "${flashrom_source}" -o ! -e "${flashrom_source}/flashrom.c" ]; then
-	msg_err "${flashrom_source} is not a valid flashrom source directory."
+	msg_err "${flashrom_source} is not a valid flashrom source directory"
 fi
 
 if [ "${#compilers[@]}" -eq 0 ]; then
@@ -159,7 +159,7 @@ else
 	mkdir -p "${www_root}"
 	resultdir=$(mktemp -d "${www_root}/flashrom-${newid}-XXX")
 	if [ ! -d "${resultdir}" ]; then
-		msg_err "Could not create temporary directory."
+		msg_err "Could not create temporary directory"
 	fi
 	results_path="${resultdir}/${results_file}"
 	resultbase=$(basename "${resultdir}")

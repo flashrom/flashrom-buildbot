@@ -1,11 +1,15 @@
 msg_err () {
-	echo "$@ Aborting." >&2
+	echo "$@. Aborting." >&2
 	exit 1
+}
+
+msg_warn () {
+	echo "$@. Continuing anyway." >&2
 }
 
 check_arg () {
 	if [ $# -ne 2 -o -z "$2" ] || [[ "$2" == -* ]]; then
-		msg_err "Missing argument for $1."
+		msg_err "Missing argument for $1"
 	fi
 }
 
@@ -18,13 +22,13 @@ fill_vbox_ips() {
 		local vmname=${vbox_names[$ck]}
 		[ -z "$vmname" ] && continue
 		if ! vminfo=$(vboxmanage showvminfo "${vmname}" --machinereadable) 2>/dev/null; then
-			msg_err "There is no VM named $vmname registered on this system."
+			msg_err "There is no VM named $vmname registered on this system"
 		fi
 		local hostonlyif=$(echo "$vminfo" | grep -oP '(?<=hostonlyadapter2=")[^"]+')
 		local vmip=$(VBoxManage list hostonlyifs | grep -ozP "(?s)Name: +${hostonlyif}\s.*?IPAddress:\N*" | grep -ozP "(?<=IPAddress:       )[0-9.]+")
 		vmip=${vmip%.1}.2
 		if ! valid_ip "$vmip" ; then
-			msg_err "Could not retrieve IP for $ck correctly (got $vmip)."
+			msg_err "Could not retrieve IP for $ck correctly (got $vmip)"
 		fi
 		vbox_ips["$ck"]=$vmip
 		vbox_hostonlyifs["$ck"]=$hostonlyif
