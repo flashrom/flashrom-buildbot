@@ -240,7 +240,7 @@ build_prepare () {
 	
 	case "${build_types[$ck]}" in
 		vbox)
-			start_vbox_vm "" "$ck" || return 1
+			start_vbox_vm "$ck" || return 1
 			local workdir="${vm_workdir}/${resultbase}"
 			cat "${workdir_base}/${resultbase}/source.tgz" | ssh ${vm_user}@${vbox_ips[$ck]} "mkdir -p ${workdir} && cd ${workdir} && tar xzf -" >/dev/null 2>&1
 			;;

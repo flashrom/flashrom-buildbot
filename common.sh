@@ -103,6 +103,27 @@ get_ck_from_vmname () {
 	eval "$_var_name=${name_vboxes[$_vmname]}"
 }
 
+# get the compiler name and the vm name from either of the two
+# invocation example: get_ck_and_vmname debian-8-amd64 namevar keyvar
+get_ck_and_vmname () {
+	local _ck
+	local _vmname
+	_namevar="$2"
+	_keyvar="$3"
+	_ck=${name_vboxes[$1]}
+	if [ -n "$_ck" ] ; then
+		_vmname="$1"
+	else
+		_vmname=${vbox_names[$1]}
+		if [ -n "$_vmname" ] ; then
+			_ck="$1"
+		else
+			msg_err "Could not find a VM matching $1"
+		fi
+	fi
+	eval "$_namevar=$_vmname ; $_keyvar=$_ck"
+}
+
 # get the haltcmd_from the vm name
 # invocation example: get_haltcmd_from_vmname debian-8-amd64 haltcmd
 get_haltcmd_from_vmname () {
@@ -118,28 +139,21 @@ get_haltcmd_from_vmname () {
 
 # ssh_vbox_vm <vm name> [ <user name> [<cmd>] ]
 ssh_vbox_vm () {
+	local vmname
 	local ck
+	get_ck_and_vmname "$1" "vmname" "ck"
 	local vm_user
-	get_ck_from_vmname "$1" "ck"
-	[ -z "$ck" ] && msg_err "Could not find compiler key for VM $1"
 	[ -n "$2" ] && vm_user="$2@"
 	local vmip=${vbox_ips[$ck]}
 	[ -n "$vmip" ] || msg_err "Could not find IP for compiler $ck"
 	ssh ${vm_user}${vmip} "$3"
 }
 
-# start_vbox_vm vmname [ck]
-# if vmname is empty use ck to determine the vm
+# start_vbox_vm [vmname|ck]
 start_vbox_vm () {
 	local vmname
 	local ck
-	if [ -n "$1" ] ; then
-		vmname="$1"
-		ck=${name_vboxes[$vmname]}
-	else
-		ck="$2"
-		vmname=${vbox_names[$ck]}
-	fi
+	get_ck_and_vmname "$1" "vmname" "ck"
 	local vmip=${vbox_ips[$ck]}
 
 	# set deadline depending on curent VM state:
@@ -152,7 +166,8 @@ start_vbox_vm () {
 		echo "${vmname} VM is already running."
 		deadline=$(date -d 10secs +%s)
 	else
-		if [ $(vboxmanage showvminfo "${vmname}" --machinereadable | grep -oP '(?<=State=").*(?=")') == "saved" ]; then
+		local state=$(vboxmanage showvminfo "${vmname}" --machinereadable | grep -oP '(?<=State=").*(?=")')
+		if [ "$state" == "saved" ]; then
 			deadline=$(date -d 50secs +%s)
 		else
 			deadline=$(date -d 6mins +%s)
@@ -179,7 +194,7 @@ shutdown_vm () {
 	fi
 
 	local vmhaltcmd
-	get_haltcmd_from_vmname ${vmname} "vmhaltcmd"
+	get_haltcmd_from_vmname "${vmname}" "vmhaltcmd"
 
 	[ -z "${vmhaltcmd}" ] && msg_warn "Could not get halt command for VM ${vmname}"
 	printf "Executing '$vmhaltcmd' on VM '$vmname'...\n"
