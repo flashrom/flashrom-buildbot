@@ -38,10 +38,9 @@ for triplet in \
 		echo " exists already, skipping."
 		continue
 	fi
-	if [ $triplet = "x86_64-linux-android" ]; then
-		# no udev support in android
-		autogen_opts+=--disable-udev
-	fi
+
+	export PKG_CONFIG_PATH=${libs_base}/${triplet}/lib/pkgconfig
+	printf "\nlibusb for $triplet...\n"
 #	FIXME: not all x32 libs are working yet... dunno which ones
 #	if [ $triplet = "x86_64-linux-gnux32" ]; then
 #		export CC="gcc -mx32" CXX="g++ -mx32"
@@ -51,15 +50,16 @@ for triplet in \
 	if [ -e Makefile ]; then
 		make distclean
 	fi
-	./autogen.sh $autogen_opts --disable-debug-log --host=${triplet} --build="$buildarch" --prefix=${libs_base}/${triplet}/
+	./autogen.sh $autogen_opts --disable-udev --disable-debug-log --disable-examples-build --disable-tests-build --host=${triplet} --build="$buildarch" --prefix=${libs_base}/${triplet}/
 	make install
 
 	# libusb-compat afterwards
+	printf "\nlibusb-compat for $triplet...\n"
 	cd ${libusb_compat_src}
 	if [ -e Makefile ]; then
 		make distclean
 	fi
-	PKG_CONFIG_PATH=${libs_base}/${triplet}/lib/pkgconfig ./autogen.sh --disable-debug-log --host=${triplet} --build="$buildarch" --prefix=${libs_base}/${triplet}
+	 ./autogen.sh --disable-debug-log --host=${triplet} --build="$buildarch" --prefix=${libs_base}/${triplet}
 	make install
 	if [ "$triplet" = "i686-w64-mingw32" -o "$triplet" = "x86_64-w64-mingw32" ]; then
 		# Make the header name match what flashrom expects of libusb-0.1 on windows
@@ -68,4 +68,5 @@ for triplet in \
 	printf " successfully installed.\n"
 done
 
+export PKG_CONFIG_PATH=
 cd "$old"
