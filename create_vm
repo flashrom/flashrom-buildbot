@@ -60,8 +60,8 @@ $dryrun printf "Now install the OS enter press enter when done with setting up t
 $dryrun read ignored
 
 $dryrun printf "Installing ssh pub key on flashrom@10.0."$ifcnt".2\n"
-$dryrun ssh-copy-id -i ~/.ssh/id_rsa.pub flashrom@10.0."$ifcnt".2
+$dryrun ssh-copy-id -i ~/.ssh/id_rsa.pub -o 'PubkeyAuthentication=no' flashrom@10.0."$ifcnt".2
 $dryrun printf "Installing ssh pub key on root@10.0."$ifcnt".2\n"
-$dryrun ssh-copy-id -i ~/.ssh/id_rsa.pub root@10.0."$ifcnt".2
+$dryrun ssh-copy-id -i ~/.ssh/id_rsa.pub -o 'PubkeyAuthentication=no' root@10.0."$ifcnt".2
 
 
