@@ -16,7 +16,7 @@ fi
 
 vmname=$1
 
-fill_vbox_ips
+fill_vbox_arrs
 
 unset compiler
 for ck in "${!available_compilers[@]}"; do
@@ -39,7 +39,7 @@ if VBoxManage list runningvms|grep -q "${vmname}"; then
 	$dryrun VBoxManage controlvm "$vmname" poweroff
 fi
 
-$dryrun VBoxManage unregistervm "$vmname" --delete
+$dryrun VBoxManage unregistervm "$vmname" --delete # deletes hdd images, states, configs as well
 
 if [ -z "${vbox_hostonlyifs[$compiler]}" ]; then
 	echo "No hostonlyif found belonging to VM $vmname"

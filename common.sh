@@ -29,13 +29,19 @@ fill_vbox_arrs() {
 		local vmname=${vbox_names[$ck]}
 		[ -z "$vmname" ] && continue
 		if ! vminfo=$(vboxmanage showvminfo "${vmname}" --machinereadable) 2>/dev/null; then
-			msg_err "There is no VM named $vmname registered on this system"
+			msg_warn "There is no VM named $vmname registered on this system"
+			return
 		fi
 		local hostonlyif=$(echo "$vminfo" | grep -oP '(?<=hostonlyadapter2=")[^"]+')
+		if [ -z "$hostonlyif" ]; then
+			msg_warn "$ck does not seem to have an associated hostonlyif"
+			return
+		fi
 		local vmip=$(VBoxManage list hostonlyifs | grep -ozP "(?s)Name: +${hostonlyif}\s.*?IPAddress:\N*" | grep -ozP "(?<=IPAddress:       )[0-9.]+")
 		vmip=${vmip%.1}.2
 		if ! valid_ip "$vmip" ; then
-			msg_err "Could not retrieve IP for $ck correctly (got $vmip)"
+			msg_warn "Could not retrieve IP for $ck correctly (got $vmip)"
+			return
 		fi
 		vbox_ips["$ck"]=$vmip
 		vbox_hostonlyifs["$ck"]=$hostonlyif
