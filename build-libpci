@@ -41,6 +41,8 @@ for triplet in \
 		export CC="${triplet}-gcc" CXX="${triplet}-g++"
 	fi
 	make distclean
+	make STRIP="-s --strip-program=${triplet}-strip" CC=${CC} CXX=${CXX} HOST=${arch} CROSS_COMPILE=${prefix} PREFIX= DESTDIR=${libs_base}/${triplet} ZLIB=no DNS=no SHARED=yes all install-lib
+	make distclean
 	make STRIP="-s --strip-program=${triplet}-strip" CC=${CC} CXX=${CXX} HOST=${arch} CROSS_COMPILE=${prefix} PREFIX= DESTDIR=${libs_base}/${triplet} ZLIB=no DNS=no SHARED=no all install-lib
 	echo " successfully installed."
 done
