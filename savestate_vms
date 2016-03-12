@@ -9,8 +9,10 @@ echo "Trying to savestate ${vmcmd_vmnames[@]}."
 fill_vbox_arrs
 
 save_vm () {
-	local vmname="$1"
-	if ! VBoxManage list runningvms|grep -q "${vmname}"; then
+	local vmname
+	local ck
+	get_ck_and_vmname "$1" "vmname" "ck"
+	if ! VBoxManage list runningvms|grep -q "^\"${vmname}\""; then
 		echo "${vmname} VM is already stopped. Nothing done."
 		return 0
 	fi

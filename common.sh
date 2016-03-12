@@ -167,14 +167,14 @@ start_vbox_vm () {
 	#  - 50 secs if the VM is saved and needs to be resumed
 	#  - 6 mins if the VM needs to boot completely
 	local deadline
-	if VBoxManage list runningvms | grep -q "${vmname}" ; then
+	if VBoxManage list runningvms | grep -q "^\"${vmname}\"" ; then
 		vms_were_running[$ck]=1
 		echo "${vmname} VM is already running."
 		deadline=$(date -d 10secs +%s)
 	else
 		local state=$(vboxmanage showvminfo "${vmname}" --machinereadable | grep -oP '(?<=State=").*(?=")')
 		if [ "$state" == "saved" ]; then
-			deadline=$(date -d 50secs +%s)
+			deadline=$(date -d 60secs +%s)
 		else
 			deadline=$(date -d 6mins +%s)
 		fi
@@ -193,8 +193,10 @@ start_vbox_vm () {
 }
 
 shutdown_vm () {
-	local vmname="$1"
-	if ! VBoxManage list runningvms | grep -q "${vmname}" ; then
+	local vmname
+	local ck
+	get_ck_and_vmname "$1" "vmname" "ck"
+	if ! VBoxManage list runningvms | grep -q "^\"${vmname}\"" ; then
 		echo "VM ${vmname} is not running."
 		continue
 	fi
