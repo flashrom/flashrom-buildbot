@@ -242,11 +242,11 @@ build_prepare () {
 		vbox)
 			start_vbox_vm "$ck" || return 1
 			local workdir="${vm_workdir}/${resultbase}"
-			cat "${workdir_base}/${resultbase}/source.tgz" | ssh ${vm_user}@${vbox_ips[$ck]} "mkdir -p ${workdir} && cd ${workdir} && tar xzf -" >/dev/null 2>&1
+			cat "${workdir_base}/${resultbase}/source.tgz" | ssh ${vm_user}@${vbox_ips[$ck]} "mkdir -p ${workdir} && cd ${workdir} && gunzip -c - | tar xf -"
 			;;
 		*)
 			local workdir="${workdir_base}/${resultbase}/${ck}"
-			mkdir -p "${workdir}" && tar xzf "${workdir_base}/${resultbase}/source.tgz" -C "${workdir}" >/dev/null 2>&1
+			mkdir -p "${workdir}" && tar xzf "${workdir_base}/${resultbase}/source.tgz" -C "${workdir}"
 			;;
 	esac
 }
@@ -415,7 +415,7 @@ main () {
 		fi
 		if [ "$cur_err" -ne 0 ]; then
 			errors=$(($errors + 1))
-			echo "The build with $ck (${compilers[$ck]}) above failed."
+			echo "The build with $ck (${compilers[$ck]}) above failed with return value $cur_err."
 			error_builds+=("$ck")
 		fi
 	done
