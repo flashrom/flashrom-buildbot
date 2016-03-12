@@ -17,13 +17,19 @@ if [ -z "$buildarch" ]; then
 fi
 
 # FIXME: x86_64-linux-gnux32 i686-w64-mingw32 x86_64-w64-mingw32
+
 for triplet in \
 	aarch64-linux-gnu \
+	alphaev4-unknown-linux-gnu \
 	arm-linux-gnueabihf \
+	hppa-linux-gnu \
 	i386-linux-gnu \
+	m68k-linux-gnu \
+	sh4-linux-gnu \
 	mips-unknown-linux-gnu \
 	powerpc64le-linux-gnu \
 	powerpc-linux-gnu \
+	s390x-ibm-linux-gnu \
 	sparc-unknown-linux-gnu \
 	x86_64-apple-darwin15 \
 	x86_64-linux-android \

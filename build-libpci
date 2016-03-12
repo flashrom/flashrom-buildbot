@@ -2,20 +2,27 @@
 
 . buildbot.conf
 
+# worked fine so far with 7220de9
 lib_src=$(realpath ../libs/pciutils)
 
 old=`pwd`
 cd ${lib_src}
 
+	#x86_64-linux-gnux32 \
+
 for triplet in \
+	alphaev4-unknown-linux-gnu \
 	aarch64-linux-gnu \
 	arm-linux-gnueabihf \
+	hppa-linux-gnu \
 	i386-linux-gnu \
 	mips-unknown-linux-gnu \
 	powerpc64le-linux-gnu \
 	powerpc-linux-gnu \
+	s390x-ibm-linux-gnu \
+	m68k-linux-gnu \
+	sh4-linux-gnu \
 	sparc-unknown-linux-gnu \
-	x86_64-linux-gnux32 \
 	x86_64-apple-darwin15 \
 	x86_64-unknown-linux-musl \
 	x86_64-unknown-linux-uclibc \

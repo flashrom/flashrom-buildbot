@@ -7,6 +7,8 @@ libusb_compat_src=$(realpath ../libs/libusb-compat-0.1)
 
 old=`pwd`
 
+# last known-working upstream version: d7cf58b
+
 buildarch=`gcc -dumpmachine 2>/dev/null`
 if [ -z "$buildarch" ]; then
 	eval `dpkg-architecture`
@@ -19,18 +21,25 @@ fi
 
 # FIXME:
 #	x86_64-unknown-linux-uclibc does not provide usleep
+
 for triplet in \
 	aarch64-linux-gnu \
+	alphaev4-unknown-linux-gnu \
 	arm-linux-gnueabihf \
+	hppa-linux-gnu \
 	i386-linux-gnu \
 	i686-w64-mingw32 \
 	mips-unknown-linux-gnu \
 	powerpc64le-linux-gnu \
 	powerpc-linux-gnu \
+	m68k-linux-gnu \
+	sh4-linux-gnu \
+	s390x-ibm-linux-gnu \
 	sparc-unknown-linux-gnu \
 	x86_64-apple-darwin15 \
 	x86_64-linux-android \
 	x86_64-unknown-linux-musl \
+	x86_64-unknown-linux-uclibc \
 	x86_64-w64-mingw32 \
 	;do
 	printf "\n\n$triplet\n"
