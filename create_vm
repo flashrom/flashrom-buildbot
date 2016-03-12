@@ -36,7 +36,7 @@ fi
 hdname=~/VirtualBox\ VMs/$vmname/hdd1.vdi # oh my.
 ctlname="storagectl1"
 #ifcnt=`expr $(VBoxManage list hostonlyifs | grep GUID: | wc -l) + 1`
-ifcnt=$(VBoxManage list hostonlyifs | grep GUID: | wc -l)
+ifcnt=$(($(VBoxManage list hostonlyifs | grep -P '^Name: +vboxnet\K(.*)' -o | sort -n | tail -n1)+1))
 port=$((5000+${ifcnt}))
 #hostonlyif="vboxnet$ifcnt"
 
