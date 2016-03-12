@@ -334,9 +334,17 @@ build_it () {
 		local exec_args=("$ck" "${make_cmds[$ck]}" CC="$cc")
 		printf "Executing for %s: %q %q" "$ck" "${make_cmds[$ck]}" CC="$cc" | tee -a "$outdir/buildlog.txt"
 		if is_key_in "$ck" "$(declare -p lib_dirs)" ; then
-			local libs_base="LIBS_BASE=${libs_base}/${lib_dirs[${ck}]}"
-			exec_args+=("$libs_base")
-			printf " $libs_base" | tee -a "$outdir/buildlog.txt"
+			local libs_path
+			case "${build_types[$ck]}" in
+				vbox)
+					libs_path="LIBS_BASE=${lib_dirs[${ck}]}"
+					;;
+				*)
+					libs_path="LIBS_BASE=${libs_base}/${lib_dirs[${ck}]}"
+					;;
+			esac
+			exec_args+=("$libs_path")
+			printf " $libs_path" | tee -a "$outdir/buildlog.txt"
 		fi
 		[ -z "${lib_option}" ] || printf " %q" "${lib_option}" | tee -a "$outdir/buildlog.txt"
 		for opt in "${flashrom_opts[@]}" ; do
