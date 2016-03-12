@@ -16,6 +16,7 @@ for triplet in \
 	powerpc-linux-gnu \
 	sparc-unknown-linux-gnu \
 	x86_64-linux-gnux32 \
+	x86_64-apple-darwin15 \
 	x86_64-unknown-linux-musl \
 	x86_64-unknown-linux-uclibc \
 	; do
@@ -27,8 +28,13 @@ for triplet in \
 		continue
 	fi
 	echo
+	if [ "$triplet" = "x86_64-apple-darwin15" ]; then
+		export CC="${triplet}-clang" CXX="${triplet}-clang++"
+	else
+		export CC="${triplet}-gcc" CXX="${triplet}-g++"
+	fi
 	make distclean
-	make STRIP="-s --strip-program=${triplet}-strip" HOST=${arch} CROSS_COMPILE=${prefix} PREFIX= DESTDIR=${libs_base}/${triplet} ZLIB=no DNS=no SHARED=yes all install-lib
+	make STRIP="-s --strip-program=${triplet}-strip" CC=${CC} CXX=${CXX} HOST=${arch} CROSS_COMPILE=${prefix} PREFIX= DESTDIR=${libs_base}/${triplet} ZLIB=no DNS=no SHARED=no all install-lib
 	echo " successfully installed."
 done
 

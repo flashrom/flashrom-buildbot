@@ -25,6 +25,7 @@ for triplet in \
 	powerpc64le-linux-gnu \
 	powerpc-linux-gnu \
 	sparc-unknown-linux-gnu \
+	x86_64-apple-darwin15 \
 	x86_64-linux-android \
 	x86_64-unknown-linux-musl \
 	x86_64-unknown-linux-uclibc \
@@ -39,6 +40,15 @@ for triplet in \
 		system_name=Linux
 	fi
 
+	if [ "$triplet" = "x86_64-apple-darwin15" ]; then
+		export CC="${triplet}-clang" CXX="${triplet}-clang++"
+		export OSXCROSS_PKG_CONFIG_PATH=${libs_base}/${triplet}/lib/pkgconfig
+		export OSXCROSS_PKG_CONFIG_LIBDIR=${libs_base}/${triplet}/lib/pkgconfig
+	else
+		export CC="${triplet}-gcc" CXX="${triplet}-g++"
+		export PKG_CONFIG_LIBDIR=${libs_base}/${triplet}/lib/pkgconfig
+	fi
+
 	if [ -s "${libs_base}/${triplet}/lib/libftdi1.a" -a -s "${libs_base}/${triplet}/lib/libftdi1.${sharedsuffix}" ] ; then
 		echo " exists already, skipping."
 		continue
@@ -51,7 +61,7 @@ for triplet in \
 	cat >toolchain.cmake <<-EOF
 	INCLUDE(CMakeForceCompiler)
 	SET(CMAKE_SYSTEM_NAME $system_name)
-	CMAKE_FORCE_C_COMPILER(${triplet}-gcc GNU)
+	CMAKE_FORCE_C_COMPILER(${CC} GNU)
 	EOF
 	#COMPILER_PREFIX(${triplet})
 	#SET(CMAKE_FIND_ROOT_PATH ${libs_base}/${triplet} /usr/${triplet})
@@ -59,7 +69,6 @@ for triplet in \
 	#SET(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 	#SET(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 
-	export PKG_CONFIG_LIBDIR=${libs_base}/${triplet}/lib/pkgconfig export CC="${triplet}-gcc" CXX="${triplet}-g++"
 	cmake	-D DOCUMENTATION=OFF -D EXAMPLES=OFF \
 		-D CMAKE_TOOLCHAIN_FILE=toolchain.cmake \
 		-D CMAKE_INSTALL_PREFIX="${libs_base}/${triplet}" \
