@@ -346,12 +346,18 @@ build_it () {
 			exec_args+=("$libs_path")
 			printf " $libs_path" | tee -a "$outdir/buildlog.txt"
 		fi
-		[ -z "${lib_option}" ] || printf " %q" "${lib_option}" | tee -a "$outdir/buildlog.txt"
-		for opt in "${flashrom_opts[@]}" ; do
-			printf " " | tee -a "$outdir/buildlog.txt"
-			printf "%q" "$opt" | tee -a "$outdir/buildlog.txt"
-			exec_args+=("$opt")
-		done
+		if [ "${#flashrom_opts[@]}" -eq 0 ]; then
+			if is_key_in "$ck" "$(declare -p default_args)" ; then
+				exec_args+=(${default_args[${ck}]})
+				printf " ${default_args[${ck}]}" | tee -a "$outdir/buildlog.txt"
+			fi
+		else
+			for opt in "${flashrom_opts[@]}" ; do
+				printf " " | tee -a "$outdir/buildlog.txt"
+				printf "%q" "$opt" | tee -a "$outdir/buildlog.txt"
+				exec_args+=("$opt")
+			done
+		fi
 		printf "\n" | tee -a "$outdir/buildlog.txt"
 		[ "$cur_err" -ne 1 ] && { build_execute "${exec_args[@]}" >> "$outdir/buildlog.txt" 2>&1 ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1; }
 		build_fetch "$ck" "$outdir/" "${build_details_file}" flashrom.8 flashrom flashrom.exe util/ich_descriptors_tool/ich_descriptors_tool util/ich_descriptors_tool/ich_descriptors_tool.exe >> "$outdir/buildlog.txt" 2>/dev/null
