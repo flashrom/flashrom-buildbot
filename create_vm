@@ -25,7 +25,7 @@ fi
 if [ $# -eq 4 ]; then
 	mem=$4
 else
-	mem=256
+	mem=512
 fi
 
 if [ ! -r "$isoname" ]; then
