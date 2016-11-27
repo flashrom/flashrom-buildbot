@@ -464,4 +464,13 @@ main () {
 	exit $errors
 }
 
-main
+# Synchronize whole main function via flock
+{
+	if ! flock -n 42 ; then
+		echo "Could not acquire buildbot lock immediately, waiting..."
+		while ! flock -w 20 42 ; do
+			echo "Could not acquire buildbot lock yet, still waiting..."
+		done
+	fi
+	main
+} 42>/var/lock/build-flashrom
