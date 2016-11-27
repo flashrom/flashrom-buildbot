@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -o pipefail
+
 . buildbot.conf
 . common.sh
 
@@ -242,11 +244,11 @@ build_prepare () {
 		vbox)
 			start_vbox_vm "$ck" || return 1
 			local workdir="${vm_workdir}/${resultbase}"
-			cat "${workdir_base}/${resultbase}/source.tgz" | ssh ${vm_user}@${vbox_ips[$ck]} "mkdir -p ${workdir} && cd ${workdir} && gunzip -c - | tar xf -"
+			cat "${workdir_base}/${resultbase}/source.tar" | ssh ${vm_user}@${vbox_ips[$ck]} "mkdir -p ${workdir} && cd ${workdir} && tar xf -"
 			;;
 		*)
 			local workdir="${workdir_base}/${resultbase}/${ck}"
-			mkdir -p "${workdir}" && tar xzf "${workdir_base}/${resultbase}/source.tgz" -C "${workdir}"
+			mkdir -p "${workdir}" && tar xf "${workdir_base}/${resultbase}/source.tar" -C "${workdir}"
 			;;
 	esac
 }
@@ -327,7 +329,7 @@ build_it () {
 	if [ "$dryrun" -ne 1 ]; then
 		local outdir="$resultdir/$ck"
 		mkdir "$outdir" || cur_err=1
-		[ "$cur_err" -ne 1 ] && { build_prepare "$ck"  >> "$outdir/buildlog.txt" 2>&1 ;[ ${PIPESTATUS[0]} -eq 0 ] || cur_err=1; }
+		[ "$cur_err" -ne 1 ] && { build_prepare "$ck"  >> "$outdir/buildlog.txt" 2>&1 ;[ $? -eq 0 ] || cur_err=1; }
 		[ "$cur_err" -eq 1 ] && return $cur_err
 		add_make_cmd "$ck"
 
@@ -391,18 +393,24 @@ main () {
 
 	startdate=$(($(date +'%s * 1000 + %-N / 1000000')))
 
-	################################################
-	# prepare local source and working directories #
-	################################################
-	test "$dryrun" -eq 1 || "make" -C "${flashrom_source}" ${flashrom_opts[@]} distclean >/dev/null 2>&1
-	mkdir -p "${workdir_base}/${resultbase}" >/dev/null 2>&1
-	tar czf "${workdir_base}/${resultbase}/source.tgz" -C "${flashrom_source}" --exclude-vcs --format=ustar . >/dev/null 2>&1
+	local exdir
+	########################################
+	# prepare source and working directory #
+	########################################
+	if [ "$dryrun" -ne 1 ]; then
+		pushd "${flashrom_source}" >/dev/null
+		exdir="$("make" --no-print-directory ${flashrom_opts[@]} export 2>/dev/null | awk 'END {print $NF}' | xargs basename)"
+		test $? -eq 0 -a -d "$exdir" || { echo "Could not export flashrom source." >&2 ; exit 1 ; }
+		mkdir -p "${workdir_base}/${resultbase}" >/dev/null && tar cf "${workdir_base}/${resultbase}/source.tar" --format=ustar -C "$exdir" . >/dev/null 2>&1 || exit 1
+		popd >/dev/null
+	fi
 
 	####################################
 	# prepare some local map variables #
 	####################################
 	fill_build_types
 	fill_vbox_arrs
+
 	##########################################
 	# then schedule compile runs in parallel #
 	##########################################
@@ -450,8 +458,9 @@ main () {
 		done
 	fi
 	test "$dryrun" -eq 1 || echo "Results in ${resultdir}"
-	test "$dryrun" -eq 1 || mv "${workdir_base}/${resultbase}/source.tgz" "${resultdir}"
-	test "$dryrun" -eq 1 || rmdir "${workdir_base}/${resultbase}/" 2>/dev/null # not created for VM-only builds
+	# Build another archive this time including a top-level directory
+	test "$dryrun" -eq 1 || tar czf "${resultdir}/source.tgz" --format=ustar -C "${flashrom_source}" "$exdir" >/dev/null 2>&1
+	test "$dryrun" -eq 1 -o $cleanup -eq 0 || rm -r "${workdir_base}/${resultbase}/" 2>/dev/null # not created for VM-only builds
 	exit $errors
 }
 
