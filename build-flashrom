@@ -184,14 +184,33 @@ sanitize_vbox_vm () {
 
 stop_vbox_vm () {
 	local ck=$1
-	local vm_was_running="${vms_were_running[$ck]}"
 	local vmname="${vbox_names[$ck]}"
+	local lock_file="/var/lock/build-flashrom-$vmname"
+	{
+		if ! flock -n 43 ; then
+			echo "Could not acquire vm_usage lock immediately, waiting..."
+			while ! flock -w 20 43 ; do
+				echo "Could not acquire vm_usage lock yet, still waiting..."
+			done
+		fi
+		local usage=$(cat "$lock_file")
+		usage=$((${usage}-1))
+		echo "${usage}" >"$lock_file"
+		if [ ${usage} -gt 0 ]; then
+			echo "$ck is not the last user of $vmname but ${usage} remain, leaving VM alone."
+			return 0
+		fi
+	} 43>>"$lock_file"
+	exec 43>&-
+
+	local vm_was_running="${vms_were_running[$ck]}"
 	local vmip=${vbox_ips[$ck]}
 	local vmhaltcmd=${halt_cmds[$vmname]}
 	# default to halt -p
 	if [ -z "$vmhaltcmd" ]; then
 		vmhaltcmd="halt -p"
 	fi
+
 	local deadline=$(date -d 2mins +%s)
 	VBoxManage list runningvms|grep -q "^\"${vmname}\"" || {
 		echo "${vmname} VM is already stopped. Nothing done."
@@ -243,7 +262,7 @@ build_prepare () {
 	case "${build_types[$ck]}" in
 		vbox)
 			start_vbox_vm "$ck" || return 1
-			local workdir="${vm_workdir}/${resultbase}"
+			local workdir="${vm_workdir}/${resultbase}/${ck}"
 			cat "${workdir_base}/${resultbase}/source.tar" | ssh ${vm_user}@${vbox_ips[$ck]} "mkdir -p ${workdir} && cd ${workdir} && tar xf -"
 			;;
 		*)
@@ -259,7 +278,7 @@ build_execute () {
 	local workdir="${workdir_base}/${resultbase}/${ck}"
 	case "${build_types[$ck]}" in
 		vbox)
-			ssh ${vm_user}@${vbox_ips[$ck]} "cd ${vm_workdir}/${resultbase} && $@"
+			ssh ${vm_user}@${vbox_ips[$ck]} "cd ${vm_workdir}/${resultbase}/${ck} && $@"
 			;;
 		*)
 			cd "${workdir}" && "$@"
@@ -275,7 +294,7 @@ build_fetch () {
 	for file in "$@"; do
 		case "${build_types[$ck]}" in
 			vbox)
-				scp -p "${vm_user}@${vbox_ips[$ck]}:\"${vm_workdir}/${resultbase}/${file}\"" "$dest/"
+				scp -p "${vm_user}@${vbox_ips[$ck]}:\"${vm_workdir}/${resultbase}/${ck}/${file}\"" "$dest/"
 				;;
 			*)
 				cp -a -t "$dest" "${workdir}/${file}"
@@ -290,7 +309,7 @@ build_destroy () {
 	shift 1
 	case "${build_types[$ck]}" in
 		vbox)
-			test "$cleanup" -eq 1 && ssh ${vm_user}@${vbox_ips[$ck]} "rm -rf ${vm_workdir}/${resultbase}"
+			test "$cleanup" -eq 1 && ssh ${vm_user}@${vbox_ips[$ck]} "rm -rf ${vm_workdir}/${resultbase}/${ck}"
 			stop_vbox_vm "$ck"
 			;;
 		*)
@@ -375,10 +394,14 @@ build_it () {
 declare -A build_types
 
 fill_build_types () {
+	declare -A loca vm_usage
 	for ck in "${!compilers[@]}"; do
 		local build_type
-		if is_key_in "$ck" "$(declare -p vbox_names)" ; then
+		local vmname="${vbox_names[$ck]}"
+		if [ -n "$vmname" ] ; then
 			build_type="vbox"
+			vm_usage["$vmname"]=$((${vm_usage[$vmname]}+1))
+			echo "${vm_usage[$vmname]}" >"/var/lock/build-flashrom-$vmname"
 		else
 			build_type="host"
 		fi
@@ -473,4 +496,5 @@ main () {
 		done
 	fi
 	main
-} 42>/var/lock/build-flashrom
+} 42>>/var/lock/build-flashrom
+exec 42>&-
